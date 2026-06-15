@@ -170,6 +170,31 @@ export interface GrammarMistakeRetryResultDto {
   createdAt: string;
 }
 
+export type GrammarProgressStatus = 'not_started' | 'learning' | 'mastered';
+
+export interface GrammarLessonProgressDto {
+  lessonId: string;
+  title: string;
+  level: GrammarLevel;
+  content: string;
+  status: GrammarProgressStatus;
+  progressPercent: number;
+  lastScore: number | null;
+  attemptCount: number;
+  lastAttemptAt: string | null;
+  locked: boolean;
+  lockReason?: string;
+}
+
+export interface GrammarLessonsProgressOverviewDto {
+  lessons: GrammarLessonProgressDto[];
+  levelMastery: {
+    basic: { total: number; mastered: number; masteryPercent: number };
+    intermediate: { total: number; mastered: number; masteryPercent: number };
+    advanced: { total: number; mastered: number; masteryPercent: number };
+  };
+}
+
 export interface AchievementDto {
   code: string;
   title: string;

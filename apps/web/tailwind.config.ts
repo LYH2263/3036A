@@ -52,10 +52,32 @@ const config: Config = {
         fadeIn: {
           '0%': { opacity: '0', transform: 'translateY(4px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' }
+        },
+        unlock: {
+          '0%': { opacity: '1', transform: 'scale(1)' },
+          '30%': { opacity: '0.8', transform: 'scale(1.15) rotate(-8deg)' },
+          '60%': { opacity: '1', transform: 'scale(1.05) rotate(4deg)' },
+          '100%': { opacity: '0', transform: 'scale(0.5) rotate(0deg)' }
+        },
+        progressGrow: {
+          '0%': { width: '0%' }
+        },
+        shimmer: {
+          '0%': { backgroundPosition: '-200% 0' },
+          '100%': { backgroundPosition: '200% 0' }
+        },
+        popIn: {
+          '0%': { opacity: '0', transform: 'scale(0.7)' },
+          '70%': { opacity: '1', transform: 'scale(1.08)' },
+          '100%': { opacity: '1', transform: 'scale(1)' }
         }
       },
       animation: {
-        fadeIn: 'fadeIn 200ms ease-out forwards'
+        fadeIn: 'fadeIn 200ms ease-out forwards',
+        unlock: 'unlock 700ms var(--ease-emphasis) forwards',
+        progressGrow: 'progressGrow 600ms var(--ease-emphasis) both',
+        shimmer: 'shimmer 1.6s linear infinite',
+        popIn: 'popIn 280ms var(--ease-emphasis) forwards'
       }
     }
   },

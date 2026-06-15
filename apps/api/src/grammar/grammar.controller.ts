@@ -19,6 +19,14 @@ export class GrammarController {
     return this.grammarService.getLessons(query);
   }
 
+  @Get('progress')
+  getLessonsProgress(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() query: GetLessonsQueryDto
+  ) {
+    return this.grammarService.getLessonsWithProgress(user.sub, query);
+  }
+
   @Get('lessons/:id')
   getLesson(@Param('id') lessonId: string) {
     return this.grammarService.getLessonDetail(lessonId);

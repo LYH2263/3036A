@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
+  BookOpen,
   BookX,
   CheckCircle2,
   ChevronRight,
@@ -11,9 +12,13 @@ import {
   FileText,
   Filter,
   ListChecks,
+  Lock,
   Play,
   Settings,
+  Sparkles,
+  Target,
   Timer,
+  Unlock,
   XCircle
 } from 'lucide-react';
 import Link from 'next/link';
@@ -26,18 +31,18 @@ import { useRequireAuth } from '../../lib/auth';
 import { enqueueOfflineEvent } from '../../lib/offline-queue';
 import type {
   GrammarAttemptDto,
+  GrammarLessonProgressDto,
+  GrammarLessonsProgressOverviewDto,
+  GrammarProgressStatus,
   QuestionResultDetail,
   TimeLimitMode
 } from '@lexigram/shared';
 
-interface GrammarLessonItem {
+interface GrammarLessonDetail {
   id: string;
   title: string;
   level: 'basic' | 'intermediate' | 'advanced';
   content: string;
-}
-
-interface GrammarLessonDetail extends GrammarLessonItem {
   questions: Array<{
     id: string;
     type: 'single_choice' | 'fill_blank';
@@ -61,12 +66,8 @@ const DEFAULT_PER_QUESTION_SEC = 20;
 const DEFAULT_PER_QUIZ_SEC = 300;
 
 function formatLessonLevel(level: 'basic' | 'intermediate' | 'advanced'): string {
-  if (level === 'basic') {
-    return '基础';
-  }
-  if (level === 'intermediate') {
-    return '进阶';
-  }
+  if (level === 'basic') return '基础';
+  if (level === 'intermediate') return '进阶';
   return '高级';
 }
 
@@ -81,6 +82,39 @@ function formatSeconds(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function getStatusInfo(status: GrammarProgressStatus) {
+  switch (status) {
+    case 'not_started':
+      return { label: '未开始', color: 'bg-slate-100 text-slate-600 border-slate-200' };
+    case 'learning':
+      return { label: '学习中', color: 'bg-amber-50 text-amber-700 border-amber-200' };
+    case 'mastered':
+      return { label: '已掌握', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  }
+}
+
+function getStatusIcon(status: GrammarProgressStatus) {
+  switch (status) {
+    case 'not_started':
+      return <BookOpen className="h-3 w-3" aria-hidden="true" />;
+    case 'learning':
+      return <Target className="h-3 w-3" aria-hidden="true" />;
+    case 'mastered':
+      return <CheckCircle2 className="h-3 w-3" aria-hidden="true" />;
+  }
+}
+
+function getProgressBarColor(status: GrammarProgressStatus) {
+  switch (status) {
+    case 'not_started':
+      return 'bg-slate-300';
+    case 'learning':
+      return 'bg-gradient-to-r from-amber-400 to-orange-500';
+    case 'mastered':
+      return 'bg-gradient-to-r from-emerald-400 to-green-500';
+  }
 }
 
 export default function GrammarPage() {
@@ -110,25 +144,65 @@ export default function GrammarPage() {
   const [submitMessage, setSubmitMessage] = useState('');
   const [result, setResult] = useState<GrammarAttemptDto | null>(null);
 
-  const lessonsQuery = useQuery({
-    queryKey: ['grammar-lessons', level],
+  const [unlockingLessonIds, setUnlockingLessonIds] = useState<Set<string>>(new Set());
+  const prevLockedMapRef = useRef<Map<string, boolean>>(new Map());
+
+  const progressQuery = useQuery({
+    queryKey: ['grammar-progress', level],
     queryFn: () =>
-      apiRequest<GrammarLessonItem[]>(
-        level === 'all' ? '/grammar/lessons' : `/grammar/lessons?level=${level}`
+      apiRequest<GrammarLessonsProgressOverviewDto>(
+        level === 'all' ? '/grammar/progress' : `/grammar/progress?level=${level}`
       ),
     enabled: ready
   });
 
   useEffect(() => {
-    if (!selectedLessonId && lessonsQuery.data && lessonsQuery.data.length > 0) {
-      setSelectedLessonId(lessonsQuery.data[0].id);
+    if (!progressQuery.data) return;
+    const curr = progressQuery.data.lessons;
+    const prev = prevLockedMapRef.current;
+
+    const newlyUnlocked: string[] = [];
+    for (const lesson of curr) {
+      const wasLocked = prev.get(lesson.lessonId);
+      if (wasLocked === true && !lesson.locked) {
+        newlyUnlocked.push(lesson.lessonId);
+      }
+      prev.set(lesson.lessonId, lesson.locked);
     }
-  }, [lessonsQuery.data, selectedLessonId]);
+    prevLockedMapRef.current = new Map(curr.map((l) => [l.lessonId, l.locked]));
+
+    if (newlyUnlocked.length > 0) {
+      const set = new Set(newlyUnlocked);
+      setUnlockingLessonIds(set);
+      window.setTimeout(() => {
+        setUnlockingLessonIds((current) => {
+          const next = new Set(current);
+          for (const id of newlyUnlocked) next.delete(id);
+          return next;
+        });
+      }, 800);
+    }
+  }, [progressQuery.data]);
+
+  const lessons: GrammarLessonProgressDto[] = progressQuery.data?.lessons ?? [];
+  const levelMastery = progressQuery.data?.levelMastery;
+
+  useEffect(() => {
+    if (!selectedLessonId && lessons.length > 0) {
+      const firstUnlocked = lessons.find((l) => !l.locked);
+      setSelectedLessonId((firstUnlocked ?? lessons[0]).lessonId);
+    }
+  }, [lessons, selectedLessonId]);
+
+  const selectedLessonProgress = useMemo(
+    () => lessons.find((l) => l.lessonId === selectedLessonId),
+    [lessons, selectedLessonId]
+  );
 
   const lessonDetailQuery = useQuery({
     queryKey: ['grammar-lesson-detail', selectedLessonId],
     queryFn: () => apiRequest<GrammarLessonDetail>(`/grammar/lessons/${selectedLessonId}`),
-    enabled: ready && Boolean(selectedLessonId)
+    enabled: ready && Boolean(selectedLessonId) && !selectedLessonProgress?.locked
   });
 
   const clearTimer = useCallback(() => {
@@ -175,14 +249,14 @@ export default function GrammarPage() {
       if (currentQ) {
         const taken = Date.now() - questionStartTs;
         setAnswers((prev) => {
-          if (prev[currentQ.id]) return prev;
+          const existing = prev[currentQ.id];
           return {
             ...prev,
             [currentQ.id]: {
               questionId: currentQ.id,
-              answer: prev[currentQ.id]?.answer ?? '',
+              answer: existing?.answer ?? '',
               timedOut,
-              timeTakenMs: taken
+              timeTakenMs: existing?.timeTakenMs ?? taken
             }
           };
         });
@@ -208,13 +282,10 @@ export default function GrammarPage() {
   );
 
   useEffect(() => {
-    if (pageMode !== 'quiz' || practiceMode !== 'timed') {
-      return;
-    }
+    if (pageMode !== 'quiz' || practiceMode !== 'timed') return;
 
     const tick = () => {
       if (hiddenRef.current) return;
-
       setRemainingMs((prev) => {
         const next = prev - 250;
         if (next <= 0) {
@@ -231,7 +302,6 @@ export default function GrammarPage() {
     };
 
     timerRef.current = window.setInterval(tick, 250);
-
     return () => {
       clearTimer();
     };
@@ -307,9 +377,7 @@ export default function GrammarPage() {
 
       const finalAnswers: AttemptAnswer[] = lessonDetailQuery.data.questions.map((q, idx) => {
         const existing = answers[q.id];
-        if (existing) {
-          return existing;
-        }
+        if (existing) return existing;
         const isCurrentQuestion = idx === currentQuestionIndex;
         const isUnanswered = practiceMode === 'timed' && opts?.forceFinish;
         return {
@@ -365,7 +433,6 @@ export default function GrammarPage() {
             body: JSON.stringify(payload)
           }
         );
-
         return { queued: false, response };
       } catch (_error) {
         await enqueueOfflineEvent({
@@ -386,7 +453,6 @@ export default function GrammarPage() {
           },
           createdAt: new Date().toISOString()
         });
-
         return { queued: true };
       }
     },
@@ -401,6 +467,7 @@ export default function GrammarPage() {
       }
       setPageMode('result');
       void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
+      void queryClient.invalidateQueries({ queryKey: ['grammar-progress'] });
     }
   });
 
@@ -467,9 +534,7 @@ export default function GrammarPage() {
   };
 
   const levelLabel = useMemo(() => {
-    if (level === 'all') {
-      return '全部级别';
-    }
+    if (level === 'all') return '全部级别';
     return formatLessonLevel(level);
   }, [level]);
 
@@ -495,6 +560,7 @@ export default function GrammarPage() {
           <SyncButton
             onSynced={() => {
               void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
+              void queryClient.invalidateQueries({ queryKey: ['grammar-progress'] });
             }}
           />
 
@@ -503,9 +569,7 @@ export default function GrammarPage() {
               <Settings className="h-4 w-4 text-brand-600" aria-hidden="true" />
               限时测验配置
             </h2>
-            <p className="section-subtitle">
-              知识点：{currentLesson?.title ?? '未选择'}
-            </p>
+            <p className="section-subtitle">知识点：{currentLesson?.title ?? '未选择'}</p>
 
             <div className="space-y-3">
               <label className="block text-sm font-medium text-slate-700">计时方式</label>
@@ -812,6 +876,7 @@ export default function GrammarPage() {
           <SyncButton
             onSynced={() => {
               void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
+              void queryClient.invalidateQueries({ queryKey: ['grammar-progress'] });
             }}
           />
 
@@ -1000,6 +1065,7 @@ export default function GrammarPage() {
         <SyncButton
           onSynced={() => {
             void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
+            void queryClient.invalidateQueries({ queryKey: ['grammar-progress'] });
           }}
         />
 
@@ -1022,6 +1088,69 @@ export default function GrammarPage() {
           </Link>
         </section>
 
+        {levelMastery ? (
+          <section className="card space-y-4 bg-white/95" data-testid="level-mastery-section">
+            <h2 className="section-title">
+              <Sparkles className="h-4 w-4 text-brand-600" aria-hidden="true" />
+              等级掌握度概览
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {(['basic', 'intermediate', 'advanced'] as const).map((lv) => {
+                const mastery = levelMastery[lv];
+                const percent = mastery.masteryPercent;
+                const isUnlocked =
+                  lv === 'basic' ||
+                  (lv === 'intermediate' &&
+                    (mastery.total === 0 ||
+                      levelMastery.basic.masteryPercent >= 60)) ||
+                  (lv === 'advanced' &&
+                    (levelMastery.intermediate.total === 0
+                      ? levelMastery.basic.total === 0 || levelMastery.basic.masteryPercent >= 60
+                      : levelMastery.intermediate.masteryPercent >= 60));
+                return (
+                  <div
+                    key={lv}
+                    className={`rounded-[var(--radius-control)] border p-4 transition-all ${
+                      isUnlocked
+                        ? 'border-slate-200 bg-slate-50/50'
+                        : 'border-slate-200 bg-slate-100/70 opacity-70'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-slate-800">
+                        {formatLessonLevel(lv)}
+                      </p>
+                      {!isUnlocked && (
+                        <Lock className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                      )}
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-1.5">
+                      <span className="text-2xl font-bold text-slate-900 tabular-nums">
+                        {mastery.mastered}
+                      </span>
+                      <span className="text-xs text-slate-500">/ {mastery.total} 已掌握</span>
+                    </div>
+                    <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${
+                          percent >= 60
+                            ? 'bg-gradient-to-r from-emerald-400 to-green-500'
+                            : 'bg-gradient-to-r from-slate-400 to-slate-500'
+                        }`}
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500 tabular-nums">
+                      掌握度 {percent}%
+                      {percent < 60 && mastery.total > 0 && lv !== 'basic' ? ' · 待解锁' : ''}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         <section className="card space-y-4 bg-white/95" data-testid="grammar-lessons-section">
           <h2 className="section-title">
             <Filter className="h-4 w-4 text-brand-600" aria-hidden="true" />
@@ -1042,7 +1171,13 @@ export default function GrammarPage() {
                 }}
                 data-testid={`level-filter-${item}`}
               >
-                {item === 'all' ? '全部' : item === 'basic' ? '基础' : item === 'intermediate' ? '进阶' : '高级'}
+                {item === 'all'
+                  ? '全部'
+                  : item === 'basic'
+                    ? '基础'
+                    : item === 'intermediate'
+                      ? '进阶'
+                      : '高级'}
               </button>
             ))}
           </div>
@@ -1051,39 +1186,166 @@ export default function GrammarPage() {
             当前筛选：{levelLabel}
           </p>
 
-          <div className="grid gap-2 sm:grid-cols-2" data-testid="grammar-lesson-list">
-            {lessonsQuery.data?.map((lesson) => (
-              <button
-                key={lesson.id}
-                type="button"
-                onClick={() => {
-                  setSelectedLessonId(lesson.id);
-                  setAnswers({});
-                  setResult(null);
-                  setSubmitMessage('');
-                }}
-                className={`rounded-[var(--radius-control)] border p-3 text-left transition-all ${
-                  lesson.id === selectedLessonId
-                    ? 'border-brand-400 bg-brand-50 shadow-sm'
-                    : 'border-slate-200 bg-white hover:border-brand-300 hover:shadow-sm'
-                }`}
-                data-testid={`lesson-item-${lesson.id}`}
-              >
-                <p className="font-medium">{lesson.title}</p>
-                <p className="mt-1 text-xs text-slate-500">级别：{formatLessonLevel(lesson.level)}</p>
-              </button>
-            ))}
+          <div className="grid gap-3 sm:grid-cols-2" data-testid="grammar-lesson-list">
+            {lessons.map((lesson) => {
+              const statusInfo = getStatusInfo(lesson.status);
+              const isUnlocking = unlockingLessonIds.has(lesson.lessonId);
+              const isSelected = lesson.lessonId === selectedLessonId;
+
+              return (
+                <div key={lesson.lessonId} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (lesson.locked) return;
+                      setSelectedLessonId(lesson.lessonId);
+                      setAnswers({});
+                      setResult(null);
+                      setSubmitMessage('');
+                    }}
+                    disabled={lesson.locked}
+                    className={`relative w-full overflow-hidden rounded-[var(--radius-control)] border p-3 text-left transition-all ${
+                      lesson.locked
+                        ? 'cursor-not-allowed border-slate-200 bg-slate-50/70 opacity-80'
+                        : isSelected
+                          ? 'border-brand-400 bg-brand-50 shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-brand-300 hover:shadow-sm'
+                    }`}
+                    data-testid={`lesson-item-${lesson.lessonId}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="flex items-center gap-1.5 font-medium text-slate-900">
+                          {lesson.title}
+                          {lesson.status === 'mastered' && !lesson.locked && (
+                            <CheckCircle2
+                              className="h-4 w-4 shrink-0 text-emerald-500"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusInfo.color}`}
+                          >
+                            {getStatusIcon(lesson.status)}
+                            {statusInfo.label}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {formatLessonLevel(lesson.level)}
+                          </span>
+                          {lesson.attemptCount > 0 && (
+                            <span className="text-[10px] text-slate-400 tabular-nums">
+                              · 练习 {lesson.attemptCount} 次
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        {lesson.locked ? (
+                          <div className="flex flex-col items-end gap-1">
+                            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-200 text-slate-500">
+                              <Lock className="h-4 w-4" aria-hidden="true" />
+                            </div>
+                            <span className="text-[10px] font-semibold text-slate-500 tabular-nums">
+                              锁定
+                            </span>
+                          </div>
+                        ) : (
+                          <p
+                            className={`text-lg font-bold tabular-nums ${
+                              lesson.status === 'mastered'
+                                ? 'text-emerald-600'
+                                : lesson.status === 'learning'
+                                  ? 'text-amber-600'
+                                  : 'text-slate-400'
+                            }`}
+                          >
+                            {lesson.progressPercent}
+                            <span className="text-xs font-medium">%</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {!lesson.locked ? (
+                      <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className={`h-full rounded-full ${getProgressBarColor(lesson.status)} animate-progressGrow`}
+                          style={{ width: `${lesson.progressPercent}%` }}
+                        />
+                      </div>
+                    ) : lesson.lockReason ? (
+                      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                        <Lock className="mr-0.5 inline h-3 w-3 align-middle" aria-hidden="true" />
+                        {lesson.lockReason}
+                      </p>
+                    ) : null}
+
+                    {isUnlocking && (
+                      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[var(--radius-control)] bg-white/40 backdrop-blur-sm">
+                        <div className="animate-unlock">
+                          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 shadow-lg ring-4 ring-emerald-200">
+                            <Unlock className="h-7 w-7 text-emerald-600" aria-hidden="true" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </section>
 
-        {lessonDetailQuery.data ? (
-          <section className="card space-y-4 bg-white/95" data-testid="grammar-detail-section">
+        {selectedLessonProgress && !selectedLessonProgress.locked ? (
+          <section
+            className="card space-y-4 bg-white/95 animate-fadeIn"
+            data-testid="grammar-detail-section"
+          >
             <div>
-              <h2 className="section-title text-lg" data-testid="grammar-lesson-title">
-                <FileText className="h-4 w-4 text-brand-600" aria-hidden="true" />
-                {lessonDetailQuery.data.title}
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">{lessonDetailQuery.data.content}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="section-title text-lg" data-testid="grammar-lesson-title">
+                  <FileText className="h-4 w-4 text-brand-600" aria-hidden="true" />
+                  {lessonDetailQuery.data?.title ?? selectedLessonProgress.title}
+                </h2>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusInfo(selectedLessonProgress.status).color} animate-popIn`}
+                >
+                  {getStatusIcon(selectedLessonProgress.status)}
+                  {getStatusInfo(selectedLessonProgress.status).label}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-slate-600">
+                {lessonDetailQuery.data?.content ?? selectedLessonProgress.content}
+              </p>
+              <div className="mt-3 rounded-[var(--radius-control)] border border-slate-200 bg-slate-50/60 p-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">学习进度</span>
+                  <span
+                    className={`font-semibold tabular-nums ${
+                      selectedLessonProgress.status === 'mastered'
+                        ? 'text-emerald-600'
+                        : 'text-amber-600'
+                    }`}
+                  >
+                    {selectedLessonProgress.progressPercent}%
+                  </span>
+                </div>
+                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${getProgressBarColor(selectedLessonProgress.status)}`}
+                    style={{ width: `${selectedLessonProgress.progressPercent}%` }}
+                  />
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                  <span>最近得分：{selectedLessonProgress.lastScore ?? '—'}</span>
+                  <span>练习次数：{selectedLessonProgress.attemptCount}</span>
+                  {selectedLessonProgress.lastAttemptAt && (
+                    <span>上次练习：{selectedLessonProgress.lastAttemptAt.slice(0, 10)}</span>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -1107,60 +1369,70 @@ export default function GrammarPage() {
               </button>
             </div>
 
-            <div className="space-y-4" data-testid="grammar-questions">
-              {lessonDetailQuery.data.questions.map((question, index) => (
-                <div
-                  key={question.id}
-                  className="rounded-[var(--radius-control)] border border-slate-200 bg-slate-50/70 p-3"
-                  data-testid={`question-${question.id}`}
-                >
-                  <p className="inline-flex items-start gap-1.5 text-sm font-medium">
-                    <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden="true" />
-                    {index + 1}. {question.prompt}
-                  </p>
+            {lessonDetailQuery.data ? (
+              <div className="space-y-4" data-testid="grammar-questions">
+                {lessonDetailQuery.data.questions.map((question, index) => (
+                  <div
+                    key={question.id}
+                    className="rounded-[var(--radius-control)] border border-slate-200 bg-slate-50/70 p-3"
+                    data-testid={`question-${question.id}`}
+                  >
+                    <p className="inline-flex items-start gap-1.5 text-sm font-medium">
+                      <ListChecks
+                        className="mt-0.5 h-4 w-4 shrink-0 text-brand-600"
+                        aria-hidden="true"
+                      />
+                      {index + 1}. {question.prompt}
+                    </p>
 
-                  {question.type === 'single_choice' ? (
-                    <div className="mt-2 grid gap-2">
-                      {question.options.map((option, optionIndex) => (
-                        <label key={option} className="flex items-center gap-2 text-sm text-slate-700">
-                          <input
-                            type="radio"
-                            name={question.id}
-                            className="h-4 w-4 accent-brand-600"
-                            value={option}
-                            checked={answers[question.id]?.answer === option}
-                            onChange={(event) =>
-                              handleSelectAnswer(question.id, event.target.value)
-                            }
-                            data-testid={`question-option-${question.id}-${optionIndex}`}
-                          />
-                          {option}
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <input
-                      className="input-control mt-2"
-                      value={answers[question.id]?.answer ?? ''}
-                      onChange={(event) =>
-                        handleSelectAnswer(question.id, event.target.value)
-                      }
-                      placeholder="请输入答案"
-                      data-testid={`question-input-${question.id}`}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
+                    {question.type === 'single_choice' ? (
+                      <div className="mt-2 grid gap-2">
+                        {question.options.map((option, optionIndex) => (
+                          <label
+                            key={option}
+                            className="flex items-center gap-2 text-sm text-slate-700"
+                          >
+                            <input
+                              type="radio"
+                              name={question.id}
+                              className="h-4 w-4 accent-brand-600"
+                              value={option}
+                              checked={answers[question.id]?.answer === option}
+                              onChange={(event) =>
+                                handleSelectAnswer(question.id, event.target.value)
+                              }
+                              data-testid={`question-option-${question.id}-${optionIndex}`}
+                            />
+                            {option}
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <input
+                        className="input-control mt-2"
+                        value={answers[question.id]?.answer ?? ''}
+                        onChange={(event) =>
+                          handleSelectAnswer(question.id, event.target.value)
+                        }
+                        placeholder="请输入答案"
+                        data-testid={`question-input-${question.id}`}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => submitMutation.mutate()}
-              data-testid="submit-attempt"
-            >
-              {submitMutation.isPending ? '提交中...' : '提交练习'}
-            </button>
+            {lessonDetailQuery.data ? (
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => submitMutation.mutate()}
+                data-testid="submit-attempt"
+              >
+                {submitMutation.isPending ? '提交中...' : '提交练习'}
+              </button>
+            ) : null}
 
             {submitMessage ? (
               <p className={grammarMessageTone} data-testid="grammar-msg">
@@ -1179,6 +1451,27 @@ export default function GrammarPage() {
                 得分：{result.score}，正确 {result.correctCount}/{result.totalQuestions}
               </div>
             ) : null}
+          </section>
+        ) : selectedLessonProgress && selectedLessonProgress.locked ? (
+          <section
+            className="card space-y-4 bg-slate-50/80 border-slate-200 animate-fadeIn"
+            data-testid="locked-lesson-section"
+          >
+            <div className="flex flex-col items-center justify-center py-6 text-center">
+              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-200">
+                <Lock className="h-7 w-7 text-slate-500" aria-hidden="true" />
+              </div>
+              <h3 className="text-base font-semibold text-slate-800">
+                知识点已锁定：{selectedLessonProgress.title}
+              </h3>
+              <p className="mt-2 max-w-md text-sm text-slate-500">
+                {selectedLessonProgress.lockReason ??
+                  '请先完成前置等级知识点的学习并达到掌握要求。'}
+              </p>
+              <p className="mt-4 text-xs text-slate-400">
+                级别：{formatLessonLevel(selectedLessonProgress.level)}
+              </p>
+            </div>
           </section>
         ) : null}
       </div>

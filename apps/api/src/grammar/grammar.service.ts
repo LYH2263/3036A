@@ -11,6 +11,9 @@ import { GetMistakesQueryDto } from './get-mistakes-query.dto';
 import { RetryMistakesDto } from './retry-mistakes.dto';
 import { SubmitAttemptDto, TimeLimitModeDto } from './submit-attempt.dto';
 
+const MASTERY_THRESHOLD = 80;
+const LEVEL_UNLOCK_MASTERY_PERCENT = 60;
+
 export interface QuestionResultDetail {
   questionId: string;
   correct: boolean;
@@ -463,5 +466,179 @@ export class GrammarService {
       level: item.level as GrammarLevel,
       count: item._count.id
     }));
+  }
+
+  async getLessonsWithProgress(userId: string, query: GetLessonsQueryDto) {
+    const [allLessons, allAttempts] = await Promise.all([
+      this.prisma.grammarLesson.findMany({
+        where: query.level ? { level: query.level } : undefined,
+        orderBy: [{ level: 'asc' }, { createdAt: 'asc' }]
+      }),
+      this.prisma.grammarAttempt.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'asc' }
+      })
+    ]);
+
+    const attemptsByLesson = new Map<string, typeof allAttempts>();
+    for (const attempt of allAttempts) {
+      const list = attemptsByLesson.get(attempt.lessonId) ?? [];
+      list.push(attempt);
+      attemptsByLesson.set(attempt.lessonId, list);
+    }
+
+    const levelLessons = new Map<GrammarLevel, Set<string>>();
+    for (const lesson of allLessons) {
+      const set = levelLessons.get(lesson.level) ?? new Set();
+      set.add(lesson.id);
+      levelLessons.set(lesson.level, set);
+    }
+
+    const levelMastery = {
+      basic: this.computeLevelMastery(
+        levelLessons.get(GrammarLevel.basic) ?? new Set(),
+        attemptsByLesson
+      ),
+      intermediate: this.computeLevelMastery(
+        levelLessons.get(GrammarLevel.intermediate) ?? new Set(),
+        attemptsByLesson
+      ),
+      advanced: this.computeLevelMastery(
+        levelLessons.get(GrammarLevel.advanced) ?? new Set(),
+        attemptsByLesson
+      )
+    };
+
+    const lessons = allLessons.map((lesson) => {
+      const attempts = attemptsByLesson.get(lesson.id) ?? [];
+      const { status, progressPercent, lastScore, lastAttemptAt, attemptCount } =
+        this.computeLessonProgress(attempts);
+      const { locked, lockReason } = this.computeLocked(lesson.level, levelMastery);
+
+      return {
+        lessonId: lesson.id,
+        title: lesson.title,
+        level: lesson.level,
+        content: lesson.content,
+        status,
+        progressPercent,
+        lastScore,
+        attemptCount,
+        lastAttemptAt,
+        locked,
+        lockReason
+      };
+    });
+
+    return { lessons, levelMastery };
+  }
+
+  private computeLevelMastery(
+    lessonIds: Set<string>,
+    attemptsByLesson: Map<string, Array<{ lessonId: string; score: number; createdAt: Date }>>
+  ) {
+    const total = lessonIds.size;
+    let mastered = 0;
+
+    for (const lessonId of lessonIds) {
+      const attempts = attemptsByLesson.get(lessonId) ?? [];
+      if (attempts.length > 0) {
+        const lastScore = attempts[attempts.length - 1].score;
+        if (lastScore >= MASTERY_THRESHOLD) {
+          mastered += 1;
+        }
+      }
+    }
+
+    const masteryPercent = total > 0 ? Math.round((mastered / total) * 100) : 0;
+    return { total, mastered, masteryPercent };
+  }
+
+  private computeLessonProgress(
+    attempts: Array<{ score: number; createdAt: Date }>
+  ) {
+    const attemptCount = attempts.length;
+
+    if (attemptCount === 0) {
+      return {
+        status: 'not_started',
+        progressPercent: 0,
+        lastScore: null,
+        lastAttemptAt: null,
+        attemptCount: 0
+      };
+    }
+
+    const lastAttempt = attempts[attemptCount - 1];
+    const lastScore = lastAttempt.score;
+
+    let status: 'not_started' | 'learning' | 'mastered';
+    let progressPercent: number;
+
+    if (lastScore >= MASTERY_THRESHOLD) {
+      status = 'mastered';
+      progressPercent = 100;
+    } else {
+      status = 'learning';
+      const bestScore = Math.max(...attempts.map((a) => a.score));
+      progressPercent = Math.max(bestScore, 1);
+      if (progressPercent >= MASTERY_THRESHOLD) {
+        progressPercent = MASTERY_THRESHOLD - 1;
+      }
+    }
+
+    return {
+      status,
+      progressPercent,
+      lastScore,
+      lastAttemptAt: formatStandardDateTime(lastAttempt.createdAt),
+      attemptCount
+    };
+  }
+
+  private computeLocked(
+    lessonLevel: GrammarLevel,
+    levelMastery: {
+      basic: { masteryPercent: number; total: number };
+      intermediate: { masteryPercent: number; total: number };
+    }
+  ): { locked: boolean; lockReason?: string } {
+    if (lessonLevel === GrammarLevel.basic) {
+      return { locked: false };
+    }
+
+    if (lessonLevel === GrammarLevel.intermediate) {
+      if (levelMastery.basic.total === 0) {
+        return { locked: false };
+      }
+      if (levelMastery.basic.masteryPercent < LEVEL_UNLOCK_MASTERY_PERCENT) {
+        return {
+          locked: true,
+          lockReason: `需先掌握基础知识点（当前掌握度 ${levelMastery.basic.masteryPercent}%，需达到 ${LEVEL_UNLOCK_MASTERY_PERCENT}%）`
+        };
+      }
+      return { locked: false };
+    }
+
+    if (lessonLevel === GrammarLevel.advanced) {
+      if (levelMastery.intermediate.total === 0) {
+        if (levelMastery.basic.total > 0 && levelMastery.basic.masteryPercent < LEVEL_UNLOCK_MASTERY_PERCENT) {
+          return {
+            locked: true,
+            lockReason: `需先掌握基础知识点（当前掌握度 ${levelMastery.basic.masteryPercent}%，需达到 ${LEVEL_UNLOCK_MASTERY_PERCENT}%）`
+          };
+        }
+        return { locked: false };
+      }
+      if (levelMastery.intermediate.masteryPercent < LEVEL_UNLOCK_MASTERY_PERCENT) {
+        return {
+          locked: true,
+          lockReason: `需先掌握进阶知识点（当前掌握度 ${levelMastery.intermediate.masteryPercent}%，需达到 ${LEVEL_UNLOCK_MASTERY_PERCENT}%）`
+        };
+      }
+      return { locked: false };
+    }
+
+    return { locked: false };
   }
 }
