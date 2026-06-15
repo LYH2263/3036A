@@ -5,19 +5,23 @@ import {
   AlertTriangle,
   BookOpen,
   BookX,
+  Brain,
   CheckCircle2,
   ChevronRight,
   Clock,
   CloudOff,
   FileText,
   Filter,
+  Lightbulb,
   ListChecks,
   Lock,
   Play,
+  RefreshCw,
   Settings,
   Sparkles,
   Target,
   Timer,
+  TrendingUp,
   Unlock,
   XCircle
 } from 'lucide-react';
@@ -34,7 +38,10 @@ import type {
   GrammarLessonProgressDto,
   GrammarLessonsProgressOverviewDto,
   GrammarProgressStatus,
+  GrammarRecommendationResponse,
   QuestionResultDetail,
+  RecommendationReasonItem,
+  RecommendedQuestion,
   TimeLimitMode
 } from '@lexigram/shared';
 
@@ -59,8 +66,8 @@ interface AttemptAnswer {
   timeTakenMs?: number;
 }
 
-type PageMode = 'select' | 'configure' | 'quiz' | 'result';
-type PracticeMode = 'normal' | 'timed';
+type PageMode = 'select' | 'configure' | 'quiz' | 'result' | 'recommend-overview';
+type PracticeMode = 'normal' | 'timed' | 'recommend';
 
 const DEFAULT_PER_QUESTION_SEC = 20;
 const DEFAULT_PER_QUIZ_SEC = 300;
@@ -147,6 +154,9 @@ export default function GrammarPage() {
   const [unlockingLessonIds, setUnlockingLessonIds] = useState<Set<string>>(new Set());
   const prevLockedMapRef = useRef<Map<string, boolean>>(new Map());
 
+  const [recommendationResult, setRecommendationResult] = useState<GrammarRecommendationResponse | null>(null);
+  const [recommendQuestionCount, setRecommendQuestionCount] = useState(10);
+
   const progressQuery = useQuery({
     queryKey: ['grammar-progress', level],
     queryFn: () =>
@@ -193,6 +203,26 @@ export default function GrammarPage() {
       setSelectedLessonId((firstUnlocked ?? lessons[0]).lessonId);
     }
   }, [lessons, selectedLessonId]);
+
+  const recommendationQuery = useQuery({
+    queryKey: ['grammar-recommendation', recommendQuestionCount],
+    queryFn: () =>
+      apiRequest<GrammarRecommendationResponse>(
+        `/grammar/recommendation?questionCount=${recommendQuestionCount}`
+      ),
+    enabled: false
+  });
+
+  const fetchRecommendation = useCallback(() => {
+    void recommendationQuery.refetch();
+  }, [recommendationQuery]);
+
+  useEffect(() => {
+    if (recommendationQuery.data && pageMode === 'select') {
+      setRecommendationResult(recommendationQuery.data);
+      setPageMode('recommend-overview');
+    }
+  }, [recommendationQuery.data, pageMode]);
 
   const selectedLessonProgress = useMemo(
     () => lessons.find((l) => l.lessonId === selectedLessonId),
@@ -242,6 +272,41 @@ export default function GrammarPage() {
 
   const advanceToNextQuestion = useCallback(
     (currentIdx: number, timedOut: boolean) => {
+      if (practiceMode === 'recommend') {
+        const questions = recommendationResult?.questions;
+        if (!questions) return;
+
+        const currentQ = questions[currentIdx];
+        if (currentQ) {
+          const taken = Date.now() - questionStartTs;
+          setAnswers((prev) => {
+            const existing = prev[currentQ.id];
+            return {
+              ...prev,
+              [currentQ.id]: {
+                questionId: currentQ.id,
+                answer: existing?.answer ?? '',
+                timedOut,
+                timeTakenMs: existing?.timeTakenMs ?? taken
+              }
+            };
+          });
+        }
+
+        if (currentIdx + 1 >= questions.length) {
+          const totalTime = Date.now() - quizStartTs;
+          setTimeout(() => {
+            submitMutation.mutate({ forceFinish: true, timeTakenMsOverride: totalTime });
+          }, 0);
+          return;
+        }
+
+        const nextIdx = currentIdx + 1;
+        setCurrentQuestionIndex(nextIdx);
+        setQuestionStartTs(Date.now());
+        return;
+      }
+
       const currentLesson = lessonDetailQuery.data;
       if (!currentLesson) return;
 
@@ -278,7 +343,7 @@ export default function GrammarPage() {
         setRemainingMs(perQuestionSec * 1000);
       }
     },
-    [lessonDetailQuery.data, questionStartTs, quizStartTs, timeLimitMode, perQuestionSec]
+    [practiceMode, recommendationResult?.questions, lessonDetailQuery.data, questionStartTs, quizStartTs, timeLimitMode, perQuestionSec]
   );
 
   useEffect(() => {
@@ -341,6 +406,22 @@ export default function GrammarPage() {
   }, [pageMode, practiceMode]);
 
   const startQuiz = useCallback(() => {
+    if (practiceMode === 'recommend') {
+      if (!recommendationResult) return;
+
+      setAnswers({});
+      setCurrentQuestionIndex(0);
+      setSubmitMessage('');
+      setResult(null);
+
+      const now = Date.now();
+      setQuizStartTs(now);
+      setQuestionStartTs(now);
+
+      setPageMode('quiz');
+      return;
+    }
+
     if (!lessonDetailQuery.data) return;
 
     setAnswers({});
@@ -359,10 +440,140 @@ export default function GrammarPage() {
     }
 
     setPageMode('quiz');
-  }, [lessonDetailQuery.data, practiceMode, timeLimitMode, perQuestionSec, perQuizSec]);
+  }, [practiceMode, recommendationResult, lessonDetailQuery.data, timeLimitMode, perQuestionSec, perQuizSec]);
 
   const submitMutation = useMutation({
     mutationFn: async (opts?: { forceFinish?: boolean; timeTakenMsOverride?: number }) => {
+      if (practiceMode === 'recommend') {
+        if (!recommendationResult) {
+          throw new Error('推荐数据不存在');
+        }
+
+        const now = Date.now();
+        const timeTakenMs = opts?.timeTakenMsOverride ?? now - quizStartTs;
+
+        const questions = recommendationResult.questions;
+        const finalAnswers: AttemptAnswer[] = questions.map((q, idx) => {
+          const existing = answers[q.id];
+          if (existing) return existing;
+          const isCurrentQuestion = idx === currentQuestionIndex;
+          return {
+            questionId: q.id,
+            answer: '',
+            timedOut: false,
+            timeTakenMs: isCurrentQuestion ? now - questionStartTs : 0
+          };
+        });
+
+        const answersByLesson = new Map<string, AttemptAnswer[]>();
+        for (let i = 0; i < questions.length; i++) {
+          const q = questions[i];
+          const answer = finalAnswers[i];
+          const list = answersByLesson.get(q.lessonId) ?? [];
+          list.push(answer);
+          answersByLesson.set(q.lessonId, list);
+        }
+
+        const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+        const results: Array<{
+          queued: boolean;
+          response?: GrammarAttemptDto;
+          lessonId: string;
+        }> = [];
+
+        for (const [lessonId, lessonAnswers] of answersByLesson) {
+          const clientEventId =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random()}-${lessonId}`;
+
+          const payload: Record<string, unknown> = {
+            answers: lessonAnswers,
+            clientEventId
+          };
+
+          if (!online) {
+            await enqueueOfflineEvent({
+              type: 'GRAMMAR_ATTEMPT',
+              clientEventId,
+              payload: {
+                lessonId,
+                answers: lessonAnswers
+              },
+              createdAt: new Date().toISOString()
+            });
+            results.push({ queued: true, lessonId });
+            continue;
+          }
+
+          try {
+            const response = await apiRequest<GrammarAttemptDto>(
+              `/grammar/lessons/${lessonId}/attempts`,
+              {
+                method: 'POST',
+                body: JSON.stringify(payload)
+              }
+            );
+            results.push({ queued: false, response, lessonId });
+          } catch (_error) {
+            await enqueueOfflineEvent({
+              type: 'GRAMMAR_ATTEMPT',
+              clientEventId,
+              payload: {
+                lessonId,
+                answers: lessonAnswers
+              },
+              createdAt: new Date().toISOString()
+            });
+            results.push({ queued: true, lessonId });
+          }
+        }
+
+        const questionMap = new Map(questions.map((q) => [q.id, q]));
+        const totalQuestions = finalAnswers.length;
+        let correctCount = 0;
+        const details: QuestionResultDetail[] = [];
+
+        for (const answer of finalAnswers) {
+          const question = questionMap.get(answer.questionId);
+          if (!question) continue;
+
+          const expected = question.answer.trim().toLowerCase();
+          const actual = answer.answer.trim().toLowerCase();
+          const correct = expected === actual;
+
+          if (correct) correctCount++;
+
+          details.push({
+            questionId: question.id,
+            correct,
+            timedOut: answer.timedOut ?? false,
+            userAnswer: answer.answer,
+            correctAnswer: question.answer,
+            explanation: question.explanation,
+            prompt: question.prompt,
+            type: question.type,
+            options: question.options,
+            timeTakenMs: answer.timeTakenMs
+          });
+        }
+
+        const score = Math.round((correctCount / Math.max(1, totalQuestions)) * 100);
+        const queued = results.some((r) => r.queued);
+
+        const mergedResult: GrammarAttemptDto = {
+          id: `recommend-${Date.now()}`,
+          lessonId: 'recommend',
+          score,
+          totalQuestions,
+          correctCount,
+          createdAt: new Date().toISOString(),
+          details
+        };
+
+        return { queued, response: mergedResult, isRecommend: true };
+      }
+
       if (!lessonDetailQuery.data) {
         throw new Error('请先选择知识点');
       }
@@ -468,6 +679,10 @@ export default function GrammarPage() {
       setPageMode('result');
       void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
       void queryClient.invalidateQueries({ queryKey: ['grammar-progress'] });
+
+      if (practiceMode === 'recommend' && !payload.queued) {
+        void recommendationQuery.refetch();
+      }
     }
   });
 
@@ -483,9 +698,41 @@ export default function GrammarPage() {
   };
 
   const handleNextQuestion = () => {
+    if (practiceMode === 'recommend') {
+      const questions = recommendationResult?.questions;
+      if (!questions) return;
+
+      const currentQ = questions[currentQuestionIndex];
+      if (currentQ) {
+        const taken = Date.now() - questionStartTs;
+        setAnswers((prev) => {
+          const existing = prev[currentQ.id];
+          return {
+            ...prev,
+            [currentQ.id]: {
+              questionId: currentQ.id,
+              answer: existing?.answer ?? '',
+              timedOut: false,
+              timeTakenMs: existing?.timeTakenMs ?? taken
+            }
+          };
+        });
+      }
+
+      if (currentQuestionIndex + 1 >= questions.length) {
+        submitMutation.mutate();
+        return;
+      }
+
+      const nextIdx = currentQuestionIndex + 1;
+      setCurrentQuestionIndex(nextIdx);
+      setQuestionStartTs(Date.now());
+      return;
+    }
+
     if (!lessonDetailQuery.data) return;
 
-    const currentQ = lessonDetailQuery.data[currentQuestionIndex];
+    const currentQ = lessonDetailQuery.data.questions[currentQuestionIndex];
     if (currentQ) {
       const taken = Date.now() - questionStartTs;
       setAnswers((prev) => {
@@ -518,7 +765,11 @@ export default function GrammarPage() {
 
   const exitQuiz = () => {
     clearTimer();
-    setPageMode('select');
+    if (practiceMode === 'recommend') {
+      setPageMode('recommend-overview');
+    } else {
+      setPageMode('select');
+    }
     setAnswers({});
     setSubmitMessage('');
     setResult(null);
@@ -528,10 +779,29 @@ export default function GrammarPage() {
     setPracticeMode(mode);
     if (mode === 'normal') {
       startQuiz();
+    } else if (mode === 'recommend') {
+      fetchRecommendation();
     } else {
       setPageMode('configure');
     }
   };
+
+  function getReasonTypeInfo(type: RecommendationReasonItem['type']) {
+    switch (type) {
+      case 'weak_point':
+        return { label: '薄弱知识点', color: 'bg-red-50 text-red-700 border-red-200', icon: <Target className="h-3 w-3" /> };
+      case 'mistake_frequent':
+        return { label: '高频错题', color: 'bg-orange-50 text-orange-700 border-orange-200', icon: <AlertTriangle className="h-3 w-3" /> };
+      case 'level_up':
+        return { label: '进阶挑战', color: 'bg-purple-50 text-purple-700 border-purple-200', icon: <TrendingUp className="h-3 w-3" /> };
+      case 'review':
+        return { label: '复习巩固', color: 'bg-blue-50 text-blue-700 border-blue-200', icon: <BookOpen className="h-3 w-3" /> };
+      case 'cold_start':
+        return { label: '新用户引导', color: 'bg-brand-50 text-brand-700 border-brand-200', icon: <Lightbulb className="h-3 w-3" /> };
+      case 'all_mastered':
+        return { label: '复习巩固', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: <CheckCircle2 className="h-3 w-3" /> };
+    }
+  }
 
   const levelLabel = useMemo(() => {
     if (level === 'all') return '全部级别';
@@ -694,9 +964,220 @@ export default function GrammarPage() {
     );
   }
 
-  if (pageMode === 'quiz' && currentLesson && currentQuestion) {
+  if (pageMode === 'recommend-overview' && recommendationResult) {
+    const questions = recommendationResult.questions;
+    const reasons = recommendationResult.reasons;
+
+    const lessonQuestionCount = new Map<string, number>();
+    for (const q of questions) {
+      const count = lessonQuestionCount.get(q.lessonId) ?? 0;
+      lessonQuestionCount.set(q.lessonId, count + 1);
+    }
+
+    return (
+      <AppShell title="智能推荐练习">
+        <div className="space-y-5" data-testid="recommend-overview-page">
+          <SyncButton
+            onSynced={() => {
+              void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
+              void queryClient.invalidateQueries({ queryKey: ['grammar-progress'] });
+            }}
+          />
+
+          {recommendationQuery.isFetching ? (
+            <div className="card bg-white/95 p-8 text-center">
+              <RefreshCw className="mx-auto h-8 w-8 animate-spin text-brand-600" aria-hidden="true" />
+              <p className="mt-3 text-sm text-slate-600">正在为您生成个性化推荐...</p>
+            </div>
+          ) : null}
+
+          <section className="card space-y-4 bg-white/95" data-testid="recommend-summary-section">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
+                  <Brain className="h-5 w-5 text-purple-600" aria-hidden="true" />
+                </div>
+                <div>
+                  <h2 className="section-title text-lg" data-testid="recommend-summary-title">
+                    智能推荐结果
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-600">{recommendationResult.summary}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={fetchRecommendation}
+                disabled={recommendationQuery.isFetching}
+                className="btn-secondary text-xs flex items-center gap-1"
+                data-testid="refresh-recommendation"
+              >
+                <RefreshCw
+                  className={`h-3 w-3 ${recommendationQuery.isFetching ? 'animate-spin' : ''}`}
+                  aria-hidden="true"
+                />
+                刷新推荐
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-[var(--radius-control)] border border-purple-200 bg-purple-50 p-4">
+                <p className="text-xs text-purple-600">推荐题目</p>
+                <p className="mt-1 text-2xl font-bold text-purple-700 tabular-nums">
+                  {questions.length}
+                  <span className="text-sm font-medium text-purple-500"> 题</span>
+                </p>
+              </div>
+              <div className="rounded-[var(--radius-control)] border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs text-slate-600">覆盖知识点</p>
+                <p className="mt-1 text-2xl font-bold text-slate-800 tabular-nums">
+                  {reasons.length}
+                  <span className="text-sm font-medium text-slate-500"> 个</span>
+                </p>
+              </div>
+              <div className="rounded-[var(--radius-control)] border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs text-slate-600">推荐类型</p>
+                <p className="mt-1 text-2xl font-bold text-slate-800 tabular-nums">
+                  {recommendationResult.isColdStart
+                    ? '新用户'
+                    : recommendationResult.allMastered
+                      ? '复习'
+                      : '薄弱优先'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3 pt-2">
+              <label className="text-sm font-medium text-slate-700">题目数量：</label>
+              <div className="flex flex-wrap gap-2">
+                {[5, 10, 15, 20].map((num) => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => {
+                      setRecommendQuestionCount(num);
+                      void recommendationQuery.refetch();
+                    }}
+                    className={`rounded-full border px-3 py-1 text-xs transition-all ${
+                      recommendQuestionCount === num
+                        ? 'border-purple-400 bg-purple-100 text-purple-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-purple-300'
+                    }`}
+                    data-testid={`recommend-count-${num}`}
+                  >
+                    {num} 题
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="card space-y-4 bg-white/95" data-testid="recommend-reasons-section">
+            <h2 className="section-title flex items-center gap-2">
+              <Lightbulb className="h-4 w-4 text-amber-500" aria-hidden="true" />
+              为什么推荐这些？
+            </h2>
+
+            <div className="space-y-3">
+              {reasons.map((reason, idx) => {
+                const reasonInfo = getReasonTypeInfo(reason.type);
+                const qCount = lessonQuestionCount.get(reason.lessonId) ?? 0;
+                return (
+                  <div
+                    key={reason.lessonId}
+                    className={`rounded-[var(--radius-control)] border p-4 ${reasonInfo.color.replace('text-', 'border-').split(' ')[1]} ${reasonInfo.color.split(' ')[0]}`}
+                    data-testid={`recommend-reason-${reason.lessonId}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <span
+                          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-slate-700 shadow-sm"
+                        >
+                          {idx + 1}
+                        </span>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-slate-800">{reason.lessonTitle}</p>
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${reasonInfo.color}`}
+                            >
+                              {reasonInfo.icon}
+                              {reasonInfo.label}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              {formatLessonLevel(reason.level)}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm text-slate-600">{reason.description}</p>
+                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+                            {reason.score !== undefined && reason.score > 0 && (
+                              <span>最近得分：{reason.score}%</span>
+                            )}
+                            {reason.correctRate !== undefined && reason.correctRate > 0 && (
+                              <span>正确率：{reason.correctRate}%</span>
+                            )}
+                            {reason.mistakeCount !== undefined && reason.mistakeCount > 0 && (
+                              <span>错题次数：{reason.mistakeCount}</span>
+                            )}
+                            <span>包含题目：{qCount} 题</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <div className="flex flex-wrap gap-3 pt-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setPageMode('select');
+                setRecommendationResult(null);
+              }}
+              data-testid="recommend-back"
+            >
+              返回知识点
+            </button>
+            <button
+              type="button"
+              className="btn-primary flex items-center gap-1.5"
+              onClick={startQuiz}
+              data-testid="start-recommend-practice"
+            >
+              <Play className="h-4 w-4" aria-hidden="true" />
+              开始推荐练习
+            </button>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (pageMode === 'quiz') {
+    const recommendQuestions = recommendationResult?.questions;
+    const isRecommendQuiz = practiceMode === 'recommend' && recommendQuestions;
+
+    const displayLesson = isRecommendQuiz
+      ? {
+          id: 'recommend',
+          title: '智能推荐练习',
+          level: 'basic' as const,
+          content: '',
+          questions: recommendQuestions
+        }
+      : currentLesson;
+    const displayQuestion = isRecommendQuiz
+      ? recommendQuestions[currentQuestionIndex]
+      : currentQuestion;
+
+    if (!displayLesson || !displayQuestion) {
+      return null;
+    }
     const progressPercent =
-      ((currentQuestionIndex + 1) / currentLesson.questions.length) * 100;
+      ((currentQuestionIndex + 1) / displayLesson.questions.length) * 100;
 
     return (
       <AppShell title="语法测验">
@@ -776,10 +1257,15 @@ export default function GrammarPage() {
               <div>
                 <h2 className="section-title text-sm" data-testid="quiz-lesson-title">
                   <FileText className="h-4 w-4 text-brand-600" aria-hidden="true" />
-                  {currentLesson.title}
+                  {displayLesson.title}
                 </h2>
+                {isRecommendQuiz && 'lessonTitle' in displayQuestion ? (
+                  <p className="mt-0.5 text-xs text-purple-600">
+                    知识点：{displayQuestion.lessonTitle} · {formatLessonLevel(displayQuestion.level)}
+                  </p>
+                ) : null}
                 <p className="mt-0.5 text-xs text-slate-500">
-                  第 {currentQuestionIndex + 1} / {currentLesson.questions.length} 题
+                  第 {currentQuestionIndex + 1} / {displayLesson.questions.length} 题
                 </p>
               </div>
               <button
@@ -800,36 +1286,36 @@ export default function GrammarPage() {
             </div>
 
             <div
-              key={currentQuestion.id}
+              key={displayQuestion.id}
               className="animate-fadeIn rounded-[var(--radius-control)] border border-slate-200 bg-slate-50/70 p-4"
-              data-testid={`quiz-question-${currentQuestion.id}`}
+              data-testid={`quiz-question-${displayQuestion.id}`}
             >
               <p className="inline-flex items-start gap-1.5 text-sm font-medium">
                 <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden="true" />
-                {currentQuestionIndex + 1}. {currentQuestion.prompt}
+                {currentQuestionIndex + 1}. {displayQuestion.prompt}
               </p>
 
-              {currentQuestion.type === 'single_choice' ? (
+              {displayQuestion.type === 'single_choice' ? (
                 <div className="mt-3 grid gap-2">
-                  {currentQuestion.options.map((option, optionIndex) => (
+                  {displayQuestion.options.map((option, optionIndex) => (
                     <label
                       key={option}
                       className={`flex cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm transition-all ${
-                        answers[currentQuestion.id]?.answer === option
+                        answers[displayQuestion.id]?.answer === option
                           ? 'border-brand-400 bg-brand-50'
                           : 'border-slate-200 bg-white hover:border-brand-300'
                       }`}
                     >
                       <input
                         type="radio"
-                        name={currentQuestion.id}
+                        name={displayQuestion.id}
                         className="h-4 w-4 accent-brand-600"
                         value={option}
-                        checked={answers[currentQuestion.id]?.answer === option}
+                        checked={answers[displayQuestion.id]?.answer === option}
                         onChange={(event) =>
-                          handleSelectAnswer(currentQuestion.id, event.target.value)
+                          handleSelectAnswer(displayQuestion.id, event.target.value)
                         }
-                        data-testid={`quiz-option-${currentQuestion.id}-${optionIndex}`}
+                        data-testid={`quiz-option-${displayQuestion.id}-${optionIndex}`}
                       />
                       {option}
                     </label>
@@ -838,12 +1324,12 @@ export default function GrammarPage() {
               ) : (
                 <input
                   className="input-control mt-3"
-                  value={answers[currentQuestion.id]?.answer ?? ''}
+                  value={answers[displayQuestion.id]?.answer ?? ''}
                   onChange={(event) =>
-                    handleSelectAnswer(currentQuestion.id, event.target.value)
+                    handleSelectAnswer(displayQuestion.id, event.target.value)
                   }
                   placeholder="请输入答案"
-                  data-testid={`quiz-input-${currentQuestion.id}`}
+                  data-testid={`quiz-input-${displayQuestion.id}`}
                 />
               )}
             </div>
@@ -855,7 +1341,7 @@ export default function GrammarPage() {
                 onClick={handleNextQuestion}
                 data-testid="quiz-next"
               >
-                {currentQuestionIndex + 1 >= currentLesson.questions.length
+                {currentQuestionIndex + 1 >= displayLesson.questions.length
                   ? '提交试卷'
                   : '下一题'}
                 <ChevronRight className="h-4 w-4" aria-hidden="true" />
@@ -1040,7 +1526,7 @@ export default function GrammarPage() {
               onClick={exitQuiz}
               data-testid="result-back"
             >
-              返回知识点
+              {practiceMode === 'recommend' ? '返回推荐' : '返回知识点'}
             </button>
             {practiceMode === 'timed' ? (
               <button
@@ -1051,6 +1537,20 @@ export default function GrammarPage() {
               >
                 <Play className="h-4 w-4" aria-hidden="true" />
                 再来一次（限时）
+              </button>
+            ) : null}
+            {practiceMode === 'recommend' ? (
+              <button
+                type="button"
+                className="btn-primary flex items-center gap-1.5"
+                onClick={() => {
+                  void recommendationQuery.refetch();
+                  setPageMode('recommend-overview');
+                }}
+                data-testid="continue-recommend"
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                刷新推荐继续练习
               </button>
             ) : null}
           </div>
@@ -1070,22 +1570,42 @@ export default function GrammarPage() {
         />
 
         <section className="card bg-white/95">
-          <Link
-            href="/grammar/mistakes"
-            className="flex items-center justify-between rounded-[var(--radius-control)] border border-brand-200 bg-brand-50 p-4 transition-all hover:border-brand-400 hover:bg-brand-100/80"
-            data-testid="mistakes-entry"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-100">
-                <BookX className="h-5 w-5 text-brand-600" aria-hidden="true" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Link
+              href="/grammar/mistakes"
+              className="flex items-center justify-between rounded-[var(--radius-control)] border border-brand-200 bg-brand-50 p-4 transition-all hover:border-brand-400 hover:bg-brand-100/80"
+              data-testid="mistakes-entry"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-100">
+                  <BookX className="h-5 w-5 text-brand-600" aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="font-medium text-brand-800">语法错题本</p>
+                  <p className="text-xs text-brand-600">查看答错的题目，支持重练巩固</p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium text-brand-800">语法错题本</p>
-                <p className="text-xs text-brand-600">查看答错的题目，支持重练巩固</p>
+              <span className="text-sm text-brand-600">进入 →</span>
+            </Link>
+
+            <button
+              type="button"
+              onClick={() => goToConfigure('recommend')}
+              className="flex items-center justify-between rounded-[var(--radius-control)] border border-purple-200 bg-purple-50 p-4 text-left transition-all hover:border-purple-400 hover:bg-purple-100/80"
+              data-testid="recommend-entry"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
+                  <Brain className="h-5 w-5 text-purple-600" aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="font-medium text-purple-800">智能推荐练习</p>
+                  <p className="text-xs text-purple-600">根据学习数据，个性化推荐练习内容</p>
+                </div>
               </div>
-            </div>
-            <span className="text-sm text-brand-600">进入 →</span>
-          </Link>
+              <span className="text-sm text-purple-600">开始 →</span>
+            </button>
+          </div>
         </section>
 
         {levelMastery ? (

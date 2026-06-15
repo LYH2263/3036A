@@ -207,6 +207,37 @@ export interface GrammarLessonsProgressOverviewDto {
   };
 }
 
+export interface RecommendationReasonItem {
+  type: 'weak_point' | 'mistake_frequent' | 'level_up' | 'review' | 'cold_start' | 'all_mastered';
+  lessonId: string;
+  lessonTitle: string;
+  level: GrammarLevel;
+  description: string;
+  score?: number;
+  correctRate?: number;
+  mistakeCount?: number;
+}
+
+export interface RecommendedQuestion {
+  id: string;
+  lessonId: string;
+  lessonTitle: string;
+  level: GrammarLevel;
+  type: 'single_choice' | 'fill_blank';
+  prompt: string;
+  options: string[];
+  explanation: string;
+  answer: string;
+}
+
+export interface GrammarRecommendationResponse {
+  questions: RecommendedQuestion[];
+  reasons: RecommendationReasonItem[];
+  summary: string;
+  isColdStart: boolean;
+  allMastered: boolean;
+}
+
 export interface AchievementDto {
   code: string;
   title: string;

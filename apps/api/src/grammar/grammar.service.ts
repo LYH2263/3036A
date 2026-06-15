@@ -8,11 +8,52 @@ import { formatStandardDateTime } from '../common/time.util';
 
 import { GetLessonsQueryDto } from './get-lessons-query.dto';
 import { GetMistakesQueryDto } from './get-mistakes-query.dto';
+import { GetRecommendationDto } from './get-recommendation.dto';
 import { RetryMistakesDto } from './retry-mistakes.dto';
 import { SubmitAttemptDto, TimeLimitModeDto } from './submit-attempt.dto';
 
 const MASTERY_THRESHOLD = 80;
 const LEVEL_UNLOCK_MASTERY_PERCENT = 60;
+const DEFAULT_RECOMMENDATION_COUNT = 10;
+
+interface LessonPerformance {
+  lessonId: string;
+  lessonTitle: string;
+  level: GrammarLevel;
+  attemptCount: number;
+  lastScore: number;
+  avgScore: number;
+  correctRate: number;
+  mistakeCount: number;
+  mastered: boolean;
+}
+
+interface RecommendationResult {
+  questions: Array<{
+    id: string;
+    lessonId: string;
+    lessonTitle: string;
+    level: GrammarLevel;
+    type: 'single_choice' | 'fill_blank';
+    prompt: string;
+    options: string[];
+    explanation: string;
+    answer: string;
+  }>;
+  reasons: Array<{
+    type: 'weak_point' | 'mistake_frequent' | 'level_up' | 'review' | 'cold_start' | 'all_mastered';
+    lessonId: string;
+    lessonTitle: string;
+    level: GrammarLevel;
+    description: string;
+    score?: number;
+    correctRate?: number;
+    mistakeCount?: number;
+  }>;
+  summary: string;
+  isColdStart: boolean;
+  allMastered: boolean;
+}
 
 export interface QuestionResultDetail {
   questionId: string;
@@ -640,5 +681,543 @@ export class GrammarService {
     }
 
     return { locked: false };
+  }
+
+  async getRecommendation(userId: string, query: GetRecommendationDto): Promise<RecommendationResult> {
+    const questionCount = query.questionCount ?? DEFAULT_RECOMMENDATION_COUNT;
+
+    const [allLessons, allAttempts, allMistakes, allQuestions] = await Promise.all([
+      this.prisma.grammarLesson.findMany({
+        orderBy: [{ level: 'asc' }, { createdAt: 'asc' }]
+      }),
+      this.prisma.grammarAttempt.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'asc' }
+      }),
+      this.prisma.grammarMistake.findMany({
+        where: { userId }
+      }),
+      this.prisma.grammarQuestion.findMany({
+        include: { lesson: true }
+      })
+    ]);
+
+    const isColdStart = allAttempts.length === 0 && allMistakes.length === 0;
+
+    if (isColdStart) {
+      return this.generateColdStartRecommendation(allLessons, allQuestions, questionCount);
+    }
+
+    const lessonPerformances = this.computeLessonPerformances(allLessons, allAttempts, allMistakes);
+
+    const allMastered = lessonPerformances.every((lp) => lp.mastered);
+    if (allMastered) {
+      return this.generateAllMasteredRecommendation(allLessons, allQuestions, questionCount);
+    }
+
+    const levelMastery = this.computeLevelMasteryFromPerformances(lessonPerformances);
+    const unlockedLevels = this.getUnlockedLevels(levelMastery);
+
+    const rankedLessons = this.rankLessonsByPriority(lessonPerformances, unlockedLevels);
+
+    return this.generateRecommendationFromRanked(
+      rankedLessons,
+      allQuestions,
+      questionCount,
+      levelMastery
+    );
+  }
+
+  private generateColdStartRecommendation(
+    allLessons: Array<{ id: string; title: string; level: GrammarLevel }>,
+    allQuestions: Array<{
+      id: string;
+      lessonId: string;
+      lesson: { title: string; level: GrammarLevel };
+      type: string;
+      prompt: string;
+      options: unknown;
+      answer: string;
+      explanation: string;
+    }>,
+    questionCount: number
+  ): RecommendationResult {
+    const basicLessons = allLessons.filter((l) => l.level === GrammarLevel.basic);
+
+    const selectedLessons = basicLessons.slice(0, 3);
+    const reasons = selectedLessons.map((lesson) => ({
+      type: 'cold_start' as const,
+      lessonId: lesson.id,
+      lessonTitle: lesson.title,
+      level: lesson.level,
+      description: '新用户推荐：从基础知识点开始学习'
+    }));
+
+    const lessonQuestions = new Map<string, typeof allQuestions>();
+    for (const q of allQuestions) {
+      const list = lessonQuestions.get(q.lessonId) ?? [];
+      list.push(q);
+      lessonQuestions.set(q.lessonId, list);
+    }
+
+    const questions: RecommendationResult['questions'] = [];
+    const questionsPerLesson = Math.ceil(questionCount / Math.max(1, selectedLessons.length));
+
+    for (const lesson of selectedLessons) {
+      const qs = lessonQuestions.get(lesson.id) ?? [];
+      const shuffled = this.shuffleArray([...qs]);
+      const selected = shuffled.slice(0, questionsPerLesson);
+      for (const q of selected) {
+        questions.push({
+          id: q.id,
+          lessonId: q.lessonId,
+          lessonTitle: q.lesson.title,
+          level: q.lesson.level,
+          type: q.type as 'single_choice' | 'fill_blank',
+          prompt: q.prompt,
+          options: q.options as string[],
+          explanation: q.explanation,
+          answer: q.answer
+        });
+      }
+    }
+
+    return {
+      questions: questions.slice(0, questionCount),
+      reasons,
+      summary: '欢迎开始语法学习！为您推荐基础知识点，循序渐进打牢基础。',
+      isColdStart: true,
+      allMastered: false
+    };
+  }
+
+  private generateAllMasteredRecommendation(
+    allLessons: Array<{ id: string; title: string; level: GrammarLevel }>,
+    allQuestions: Array<{
+      id: string;
+      lessonId: string;
+      lesson: { title: string; level: GrammarLevel };
+      type: string;
+      prompt: string;
+      options: unknown;
+      answer: string;
+      explanation: string;
+    }>,
+    questionCount: number
+  ): RecommendationResult {
+    const advancedLessons = allLessons.filter((l) => l.level === GrammarLevel.advanced);
+    const intermediateLessons = allLessons.filter((l) => l.level === GrammarLevel.intermediate);
+
+    const reviewLessons = [...advancedLessons, ...intermediateLessons].slice(0, 3);
+    const reasons = reviewLessons.map((lesson) => ({
+      type: 'all_mastered' as const,
+      lessonId: lesson.id,
+      lessonTitle: lesson.title,
+      level: lesson.level,
+      description: '所有知识点已掌握，推荐复习巩固'
+    }));
+
+    const lessonQuestions = new Map<string, typeof allQuestions>();
+    for (const q of allQuestions) {
+      const list = lessonQuestions.get(q.lessonId) ?? [];
+      list.push(q);
+      lessonQuestions.set(q.lessonId, list);
+    }
+
+    const questions: RecommendationResult['questions'] = [];
+    const questionsPerLesson = Math.ceil(questionCount / Math.max(1, reviewLessons.length));
+
+    for (const lesson of reviewLessons) {
+      const qs = lessonQuestions.get(lesson.id) ?? [];
+      const shuffled = this.shuffleArray([...qs]);
+      const selected = shuffled.slice(0, questionsPerLesson);
+      for (const q of selected) {
+        questions.push({
+          id: q.id,
+          lessonId: q.lessonId,
+          lessonTitle: q.lesson.title,
+          level: q.lesson.level,
+          type: q.type as 'single_choice' | 'fill_blank',
+          prompt: q.prompt,
+          options: q.options as string[],
+          explanation: q.explanation,
+          answer: q.answer
+        });
+      }
+    }
+
+    return {
+      questions: questions.slice(0, questionCount),
+      reasons,
+      summary: '太棒了！所有知识点已掌握，为您推荐复习题目巩固记忆。',
+      isColdStart: false,
+      allMastered: true
+    };
+  }
+
+  private computeLessonPerformances(
+    allLessons: Array<{ id: string; title: string; level: GrammarLevel }>,
+    allAttempts: Array<{ lessonId: string; score: number; correctCount: number; totalQuestions: number; createdAt: Date }>,
+    allMistakes: Array<{ lessonId: string; errorCount: number }>
+  ): LessonPerformance[] {
+    const attemptsByLesson = new Map<string, typeof allAttempts>();
+    for (const attempt of allAttempts) {
+      const list = attemptsByLesson.get(attempt.lessonId) ?? [];
+      list.push(attempt);
+      attemptsByLesson.set(attempt.lessonId, list);
+    }
+
+    const mistakeCountByLesson = new Map<string, number>();
+    for (const mistake of allMistakes) {
+      const current = mistakeCountByLesson.get(mistake.lessonId) ?? 0;
+      mistakeCountByLesson.set(mistake.lessonId, current + mistake.errorCount);
+    }
+
+    const performances: LessonPerformance[] = [];
+    for (const lesson of allLessons) {
+      const attempts = attemptsByLesson.get(lesson.id) ?? [];
+      const mistakeCount = mistakeCountByLesson.get(lesson.id) ?? 0;
+
+      let attemptCount = attempts.length;
+      let lastScore = 0;
+      let avgScore = 0;
+      let correctRate = 0;
+      let mastered = false;
+
+      if (attemptCount > 0) {
+        lastScore = attempts[attemptCount - 1].score;
+        const totalScore = attempts.reduce((sum, a) => sum + a.score, 0);
+        avgScore = Math.round(totalScore / attemptCount);
+        const totalCorrect = attempts.reduce((sum, a) => sum + a.correctCount, 0);
+        const totalQuestions = attempts.reduce((sum, a) => sum + a.totalQuestions, 0);
+        correctRate = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
+        mastered = lastScore >= MASTERY_THRESHOLD;
+      }
+
+      performances.push({
+        lessonId: lesson.id,
+        lessonTitle: lesson.title,
+        level: lesson.level,
+        attemptCount,
+        lastScore,
+        avgScore,
+        correctRate,
+        mistakeCount,
+        mastered
+      });
+    }
+
+    return performances;
+  }
+
+  private computeLevelMasteryFromPerformances(performances: LessonPerformance[]) {
+    const byLevel = new Map<GrammarLevel, LessonPerformance[]>();
+    for (const p of performances) {
+      const list = byLevel.get(p.level) ?? [];
+      list.push(p);
+      byLevel.set(p.level, list);
+    }
+
+    const result = {
+      basic: { total: 0, mastered: 0, masteryPercent: 0 },
+      intermediate: { total: 0, mastered: 0, masteryPercent: 0 },
+      advanced: { total: 0, mastered: 0, masteryPercent: 0 }
+    };
+
+    for (const level of [GrammarLevel.basic, GrammarLevel.intermediate, GrammarLevel.advanced]) {
+      const list = byLevel.get(level) ?? [];
+      const total = list.length;
+      const mastered = list.filter((p) => p.mastered).length;
+      const masteryPercent = total > 0 ? Math.round((mastered / total) * 100) : 0;
+      result[level] = { total, mastered, masteryPercent };
+    }
+
+    return result;
+  }
+
+  private getUnlockedLevels(levelMastery: {
+    basic: { masteryPercent: number; total: number };
+    intermediate: { masteryPercent: number; total: number };
+  }): GrammarLevel[] {
+    const unlocked: GrammarLevel[] = [GrammarLevel.basic];
+
+    if (
+      levelMastery.basic.total === 0 ||
+      levelMastery.basic.masteryPercent >= LEVEL_UNLOCK_MASTERY_PERCENT
+    ) {
+      unlocked.push(GrammarLevel.intermediate);
+    }
+
+    if (
+      levelMastery.intermediate.total === 0
+        ? levelMastery.basic.total === 0 || levelMastery.basic.masteryPercent >= LEVEL_UNLOCK_MASTERY_PERCENT
+        : levelMastery.intermediate.masteryPercent >= LEVEL_UNLOCK_MASTERY_PERCENT
+    ) {
+      unlocked.push(GrammarLevel.advanced);
+    }
+
+    return unlocked;
+  }
+
+  private rankLessonsByPriority(
+    performances: LessonPerformance[],
+    unlockedLevels: GrammarLevel[]
+  ): Array<{ performance: LessonPerformance; priorityScore: number; reasonType: string }> {
+    const ranked: Array<{ performance: LessonPerformance; priorityScore: number; reasonType: string }> = [];
+
+    for (const perf of performances) {
+      if (!unlockedLevels.includes(perf.level)) {
+        continue;
+      }
+
+      let priorityScore = 0;
+      let reasonType = 'review';
+
+      if (perf.attemptCount === 0) {
+        priorityScore = 80;
+        reasonType = 'weak_point';
+      } else if (!perf.mastered) {
+        priorityScore = 100 - perf.lastScore;
+        if (perf.mistakeCount > 0) {
+          priorityScore += Math.min(perf.mistakeCount * 5, 30);
+          reasonType = perf.mistakeCount >= 3 ? 'mistake_frequent' : 'weak_point';
+        } else {
+          reasonType = 'weak_point';
+        }
+      } else {
+        priorityScore = 10;
+        if (perf.correctRate < 90) {
+          priorityScore += 15;
+          reasonType = 'review';
+        } else {
+          reasonType = 'review';
+        }
+      }
+
+      const levelBonus = perf.level === GrammarLevel.basic ? 5 : perf.level === GrammarLevel.intermediate ? 3 : 0;
+      priorityScore += levelBonus;
+
+      ranked.push({ performance: perf, priorityScore, reasonType });
+    }
+
+    ranked.sort((a, b) => b.priorityScore - a.priorityScore);
+
+    return ranked;
+  }
+
+  private generateRecommendationFromRanked(
+    rankedLessons: Array<{ performance: LessonPerformance; priorityScore: number; reasonType: string }>,
+    allQuestions: Array<{
+      id: string;
+      lessonId: string;
+      lesson: { title: string; level: GrammarLevel };
+      type: string;
+      prompt: string;
+      options: unknown;
+      answer: string;
+      explanation: string;
+    }>,
+    questionCount: number,
+    levelMastery: {
+      basic: { masteryPercent: number; total: number };
+      intermediate: { masteryPercent: number; total: number };
+      advanced: { masteryPercent: number; total: number };
+    }
+  ): RecommendationResult {
+    const highPriority = rankedLessons.filter((r) => r.priorityScore >= 50);
+    const mediumPriority = rankedLessons.filter((r) => r.priorityScore >= 20 && r.priorityScore < 50);
+    const lowPriority = rankedLessons.filter((r) => r.priorityScore < 20);
+
+    let selectedLessons: typeof rankedLessons = [];
+
+    if (highPriority.length >= 2) {
+      selectedLessons = highPriority.slice(0, 3);
+    } else if (highPriority.length === 1) {
+      selectedLessons = [...highPriority, ...mediumPriority.slice(0, 2)];
+    } else {
+      selectedLessons = [...mediumPriority.slice(0, 2), ...lowPriority.slice(0, 1)];
+    }
+
+    if (selectedLessons.length < 3) {
+      selectedLessons = [...selectedLessons, ...lowPriority.slice(0, 3 - selectedLessons.length)];
+    }
+
+    const shouldLevelUp = this.shouldRecommendLevelUp(levelMastery, selectedLessons);
+    if (shouldLevelUp) {
+      const nextLevelLesson = this.getNextLevelLesson(rankedLessons, levelMastery);
+      if (nextLevelLesson && !selectedLessons.find((s) => s.performance.lessonId === nextLevelLesson.performance.lessonId)) {
+        selectedLessons[selectedLessons.length - 1] = nextLevelLesson;
+      }
+    }
+
+    const reasons = selectedLessons.map((item) => {
+      const perf = item.performance;
+      let description = '';
+
+      switch (item.reasonType) {
+        case 'weak_point':
+          if (perf.attemptCount === 0) {
+            description = '尚未学习，推荐开始练习';
+          } else {
+            description = `正确率${perf.lastScore}%，需要加强练习`;
+          }
+          break;
+        case 'mistake_frequent':
+          description = `错题${perf.mistakeCount}次，高频错题需重点巩固`;
+          break;
+        case 'level_up':
+          description = '基础稳固，推荐挑战更高难度';
+          break;
+        case 'review':
+        default:
+          description = perf.mastered
+            ? '已掌握，定期复习巩固记忆'
+            : '学习中，持续练习提升';
+          break;
+      }
+
+      return {
+        type: item.reasonType as 'weak_point' | 'mistake_frequent' | 'level_up' | 'review',
+        lessonId: perf.lessonId,
+        lessonTitle: perf.lessonTitle,
+        level: perf.level,
+        description,
+        score: perf.lastScore,
+        correctRate: perf.correctRate,
+        mistakeCount: perf.mistakeCount
+      };
+    });
+
+    const lessonQuestions = new Map<string, typeof allQuestions>();
+    for (const q of allQuestions) {
+      const list = lessonQuestions.get(q.lessonId) ?? [];
+      list.push(q);
+      lessonQuestions.set(q.lessonId, list);
+    }
+
+    const questions: RecommendationResult['questions'] = [];
+    const questionsPerLesson = Math.ceil(questionCount / Math.max(1, selectedLessons.length));
+
+    for (const item of selectedLessons) {
+      const qs = lessonQuestions.get(item.performance.lessonId) ?? [];
+      const shuffled = this.shuffleArray([...qs]);
+      const selected = shuffled.slice(0, questionsPerLesson);
+      for (const q of selected) {
+        questions.push({
+          id: q.id,
+          lessonId: q.lessonId,
+          lessonTitle: q.lesson.title,
+          level: q.lesson.level,
+          type: q.type as 'single_choice' | 'fill_blank',
+          prompt: q.prompt,
+          options: q.options as string[],
+          explanation: q.explanation,
+          answer: q.answer
+        });
+      }
+    }
+
+    const weakPoints = reasons.filter((r) => r.type === 'weak_point' || r.type === 'mistake_frequent');
+    const hasLevelUp = reasons.some((r) => r.type === 'level_up');
+
+    let summary = '';
+    if (weakPoints.length > 0) {
+      summary = `为您推荐${weakPoints.length}个薄弱知识点重点练习，`;
+      if (hasLevelUp) {
+        summary += '同时加入高阶题目挑战自我。';
+      } else {
+        summary += '扎实基础后即可解锁更高难度。';
+      }
+    } else if (hasLevelUp) {
+      summary = '基础扎实！为您推荐更高难度题目进阶学习。';
+    } else {
+      summary = '为您精选复习题目，巩固已学知识点。';
+    }
+
+    return {
+      questions: questions.slice(0, questionCount),
+      reasons,
+      summary,
+      isColdStart: false,
+      allMastered: false
+    };
+  }
+
+  private shouldRecommendLevelUp(
+    levelMastery: {
+      basic: { masteryPercent: number; total: number };
+      intermediate: { masteryPercent: number; total: number };
+    },
+    currentSelection: Array<{ performance: LessonPerformance }>
+  ): boolean {
+    if (
+      levelMastery.basic.masteryPercent >= 70 &&
+      levelMastery.basic.total > 0 &&
+      !currentSelection.some((s) => s.performance.level === GrammarLevel.intermediate)
+    ) {
+      return true;
+    }
+
+    if (
+      levelMastery.intermediate.masteryPercent >= 70 &&
+      levelMastery.intermediate.total > 0 &&
+      !currentSelection.some((s) => s.performance.level === GrammarLevel.advanced)
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private getNextLevelLesson(
+    rankedLessons: Array<{ performance: LessonPerformance; priorityScore: number; reasonType: string }>,
+    levelMastery: {
+      basic: { masteryPercent: number; total: number };
+      intermediate: { masteryPercent: number; total: number };
+    }
+  ): typeof rankedLessons[0] | null {
+    let targetLevel: GrammarLevel | null = null;
+
+    if (
+      levelMastery.basic.masteryPercent >= 70 &&
+      levelMastery.basic.total > 0 &&
+      levelMastery.intermediate.masteryPercent < 70
+    ) {
+      targetLevel = GrammarLevel.intermediate;
+    } else if (
+      levelMastery.intermediate.masteryPercent >= 70 &&
+      levelMastery.intermediate.total > 0
+    ) {
+      targetLevel = GrammarLevel.advanced;
+    }
+
+    if (!targetLevel) return null;
+
+    const candidate = rankedLessons.find(
+      (r) => r.performance.level === targetLevel && !r.performance.mastered
+    );
+
+    if (candidate) {
+      return { ...candidate, reasonType: 'level_up' };
+    }
+
+    const masteredCandidate = rankedLessons.find(
+      (r) => r.performance.level === targetLevel
+    );
+
+    if (masteredCandidate) {
+      return { ...masteredCandidate, reasonType: 'level_up' };
+    }
+
+    return null;
+  }
+
+  private shuffleArray<T>(array: T[]): T[] {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
   }
 }

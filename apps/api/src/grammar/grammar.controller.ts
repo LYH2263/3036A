@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../common/jwt-auth.guard';
 
 import { GetLessonsQueryDto } from './get-lessons-query.dto';
 import { GetMistakesQueryDto } from './get-mistakes-query.dto';
+import { GetRecommendationDto } from './get-recommendation.dto';
 import { GrammarService } from './grammar.service';
 import { RetryMistakesDto } from './retry-mistakes.dto';
 import { SubmitAttemptDto } from './submit-attempt.dto';
@@ -25,6 +26,14 @@ export class GrammarController {
     @Query() query: GetLessonsQueryDto
   ) {
     return this.grammarService.getLessonsWithProgress(user.sub, query);
+  }
+
+  @Get('recommendation')
+  getRecommendation(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() query: GetRecommendationDto
+  ) {
+    return this.grammarService.getRecommendation(user.sub, query);
   }
 
   @Get('lessons/:id')
