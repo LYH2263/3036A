@@ -217,7 +217,10 @@ export type OfflineQueueEvent =
   | GrammarAttemptEvent
   | GrammarMistakeRetryEvent
   | WordNoteUpsertEvent
-  | WordNoteDeleteEvent;
+  | WordNoteDeleteEvent
+  | SearchHistoryAddEvent
+  | SearchHistoryDeleteEvent
+  | SearchHistoryClearEvent;
 
 export interface WordReviewEvent {
   type: 'WORD_REVIEW';
@@ -269,5 +272,37 @@ export interface WordNoteDeleteEvent {
   payload: {
     progressId: string;
   };
+  createdAt: string;
+}
+
+export interface SearchHistoryDto {
+  id: string;
+  query: string;
+  searchedAt: string;
+  inLibrary: boolean;
+}
+
+export interface SearchHistoryAddEvent {
+  type: 'SEARCH_HISTORY_ADD';
+  clientEventId: string;
+  payload: {
+    query: string;
+  };
+  createdAt: string;
+}
+
+export interface SearchHistoryDeleteEvent {
+  type: 'SEARCH_HISTORY_DELETE';
+  clientEventId: string;
+  payload: {
+    query: string;
+  };
+  createdAt: string;
+}
+
+export interface SearchHistoryClearEvent {
+  type: 'SEARCH_HISTORY_CLEAR';
+  clientEventId: string;
+  payload: Record<string, never>;
   createdAt: string;
 }

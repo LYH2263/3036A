@@ -1,6 +1,6 @@
 'use client';
 
-import type { UserWordProgressDto, WordEntryDto, WordGroupDto } from '@lexigram/shared';
+import type { SearchHistoryDto, UserWordProgressDto, WordEntryDto, WordGroupDto } from '@lexigram/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -15,16 +15,24 @@ import {
   Volume2,
   X
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppShell } from '../../components/app-shell';
 import { AssignGroupsDialog } from '../../components/assign-groups-dialog';
 import { GroupSidebar, type GroupFilter } from '../../components/group-sidebar';
+import { SearchHistoryPanel } from '../../components/search-history-panel';
 import { SyncButton } from '../../components/sync-button';
 import { WordNoteEditor } from '../../components/word-note-editor';
 import { apiRequest, ApiError } from '../../lib/api';
 import { useRequireAuth } from '../../lib/auth';
 import { enqueueOfflineEvent } from '../../lib/offline-queue';
+import {
+  addSearchHistory,
+  clearSearchHistory,
+  debounce,
+  deleteSearchHistoryItem,
+  fetchSearchHistory
+} from '../../lib/search-history';
 import {
   isSpeechSynthesisSupported,
   listSpeechVoices,
@@ -42,6 +50,7 @@ const ACCENT_OPTIONS = [
 ] as const;
 
 const AUTO_VOICE_VALUE = '__auto__';
+const DEBOUNCE_ADD_HISTORY_MS = 800;
 
 type TabType = 'review' | 'library';
 
@@ -56,7 +65,7 @@ function buildQueryParams(filter: GroupFilter) {
 }
 
 export default function VocabularyPage() {
-  const { ready } = useRequireAuth();
+  const { ready, user } = useRequireAuth();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState('');
@@ -71,6 +80,14 @@ export default function VocabularyPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+
+  const [searchHistory, setSearchHistory] = useState<SearchHistoryDto[]>([]);
+  const [historyPanelOpen, setHistoryPanelOpen] = useState(false);
+  const [activeHistoryIndex, setActiveHistoryIndex] = useState(-1);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -138,11 +155,164 @@ export default function VocabularyPage() {
     enabled: ready
   });
 
+  const libraryWordsSet = useMemo(() => {
+    const all = libraryQuery.data ?? [];
+    const set = new Set<string>();
+    for (const item of all) {
+      set.add(item.word.word.toLowerCase());
+    }
+    return set;
+  }, [libraryQuery.data]);
+
   const groupsQuery = useQuery({
     queryKey: ['word-groups'],
     queryFn: () => apiRequest<WordGroupDto[]>('/word-groups'),
     enabled: ready
   });
+
+  const loadSearchHistory = useCallback(async () => {
+    if (!ready) return;
+    setHistoryLoading(true);
+    try {
+      const items = await fetchSearchHistory(user?.id ?? null, libraryWordsSet);
+      setSearchHistory(items);
+    } catch {
+      // ignore
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [ready, user?.id, libraryWordsSet]);
+
+  useEffect(() => {
+    void loadSearchHistory();
+  }, [loadSearchHistory]);
+
+  useEffect(() => {
+    if (searchHistory.length > 0) {
+      setSearchHistory((prev) =>
+        prev.map((item) => ({
+          ...item,
+          inLibrary: libraryWordsSet.has(item.query.toLowerCase())
+        }))
+      );
+    }
+  }, [libraryWordsSet, searchHistory.length]);
+
+  const debouncedAddHistory = useMemo(
+    () =>
+      debounce(async (searchQuery: string) => {
+        const normalized = searchQuery.trim();
+        if (!normalized) return;
+        try {
+          const items = await addSearchHistory(user?.id ?? null, normalized, libraryWordsSet);
+          setSearchHistory(items);
+        } catch {
+          // ignore
+        }
+      }, DEBOUNCE_ADD_HISTORY_MS),
+    [user?.id, libraryWordsSet]
+  );
+
+  useEffect(() => {
+    if (query.trim().length > 0) {
+      debouncedAddHistory(query);
+    }
+  }, [query, debouncedAddHistory]);
+
+  const handleHistorySelect = useCallback(
+    (selectedQuery: string) => {
+      setQuery(selectedQuery);
+      setHistoryPanelOpen(false);
+      setActiveHistoryIndex(-1);
+      searchInputRef.current?.focus();
+    },
+    []
+  );
+
+  const handleHistoryDelete = useCallback(
+    async (toDelete: string) => {
+      try {
+        const items = await deleteSearchHistoryItem(user?.id ?? null, toDelete, libraryWordsSet);
+        setSearchHistory(items);
+        if (activeHistoryIndex >= items.length) {
+          setActiveHistoryIndex(Math.max(-1, items.length - 1));
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [user?.id, libraryWordsSet, activeHistoryIndex]
+  );
+
+  const handleHistoryClearAll = useCallback(async () => {
+    try {
+      const items = await clearSearchHistory(user?.id ?? null);
+      setSearchHistory(items);
+      setActiveHistoryIndex(-1);
+    } catch {
+      // ignore
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (searchSectionRef.current && !searchSectionRef.current.contains(target)) {
+        setHistoryPanelOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSearchKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      const items = searchHistory;
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (items.length > 0) {
+          setHistoryPanelOpen(true);
+          setActiveHistoryIndex((prev) => (prev < items.length - 1 ? prev + 1 : 0));
+        }
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (items.length > 0 && historyPanelOpen) {
+          setActiveHistoryIndex((prev) => (prev > 0 ? prev - 1 : items.length - 1));
+        }
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        if (historyPanelOpen && activeHistoryIndex >= 0 && items[activeHistoryIndex]) {
+          event.preventDefault();
+          handleHistorySelect(items[activeHistoryIndex].query);
+        } else {
+          setHistoryPanelOpen(false);
+          setActiveHistoryIndex(-1);
+        }
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setHistoryPanelOpen(false);
+        setActiveHistoryIndex(-1);
+        return;
+      }
+    },
+    [searchHistory, historyPanelOpen, activeHistoryIndex, handleHistorySelect]
+  );
+
+  const handleSearchFocus = useCallback(() => {
+    void loadSearchHistory();
+    setHistoryPanelOpen(true);
+    setActiveHistoryIndex(-1);
+  }, [loadSearchHistory]);
 
   const ungroupedCount = useMemo(() => {
     const all = libraryQuery.data ?? [];
@@ -322,6 +492,7 @@ export default function VocabularyPage() {
             void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
             void queryClient.invalidateQueries({ queryKey: ['word-groups'] });
             void queryClient.invalidateQueries({ queryKey: ['word-note'] });
+            void loadSearchHistory();
           }}
         />
 
@@ -344,18 +515,57 @@ export default function VocabularyPage() {
           </div>
 
           <div className="space-y-5">
-            <section className="card space-y-4 bg-white/95" data-testid="vocabulary-search-section">
+            <section
+              className="card space-y-4 bg-white/95 relative"
+              data-testid="vocabulary-search-section"
+              ref={searchSectionRef}
+            >
               <h2 className="section-title">
                 <Search className="h-4 w-4 text-brand-600" aria-hidden="true" />
                 单词查询
               </h2>
-              <input
-                className="input-control"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="请输入要查询的英文单词"
-                data-testid="word-search-input"
-              />
+              <div className="relative">
+                <input
+                  ref={searchInputRef}
+                  className="input-control pr-10"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onFocus={handleSearchFocus}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="请输入要查询的英文单词"
+                  data-testid="word-search-input"
+                  autoComplete="off"
+                />
+                {query ? (
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                    onClick={() => {
+                      setQuery('');
+                      searchInputRef.current?.focus();
+                    }}
+                    data-testid="word-search-clear"
+                    aria-label="清除搜索"
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                ) : null}
+
+                <SearchHistoryPanel
+                  items={searchHistory}
+                  activeIndex={activeHistoryIndex}
+                  open={historyPanelOpen}
+                  onSelect={handleHistorySelect}
+                  onDelete={handleHistoryDelete}
+                  onClearAll={handleHistoryClearAll}
+                  onHoverIndex={setActiveHistoryIndex}
+                />
+              </div>
+              {historyLoading ? (
+                <p className="-mt-2 text-xs text-slate-400" data-testid="search-history-loading">
+                  加载搜索历史...
+                </p>
+              ) : null}
 
               <div className="grid gap-3 sm:grid-cols-2" data-testid="speech-controls">
                 <label className="space-y-1">

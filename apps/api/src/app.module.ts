@@ -6,6 +6,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { GrammarModule } from './grammar/grammar.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SearchHistoryModule } from './search-history/search-history.module';
 import { StatsModule } from './stats/stats.module';
 import { UserWordsModule } from './user-words/user-words.module';
 import { WordGroupsModule } from './word-groups/word-groups.module';
@@ -30,7 +31,8 @@ import { WordsModule } from './words/words.module';
     WordGroupsModule,
     WordNotesModule,
     GrammarModule,
-    StatsModule
+    StatsModule,
+    SearchHistoryModule
   ],
   providers: [
     {

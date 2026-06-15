@@ -1,3 +1,5 @@
+import type { SearchHistoryDto } from '@lexigram/shared';
+
 import { apiRequest } from './api';
 import { readOfflineEvents, removeOfflineEvent } from './offline-queue';
 
@@ -56,6 +58,28 @@ export async function syncOfflineQueue(): Promise<{ synced: number; failed: numb
 
       if (row.event.type === 'WORD_NOTE_DELETE') {
         await apiRequest(`/word-notes/progress/${row.event.payload.progressId}`, {
+          method: 'DELETE'
+        });
+      }
+
+      if (row.event.type === 'SEARCH_HISTORY_ADD') {
+        await apiRequest<SearchHistoryDto[]>('/search-history', {
+          method: 'POST',
+          body: JSON.stringify({
+            query: row.event.payload.query
+          })
+        });
+      }
+
+      if (row.event.type === 'SEARCH_HISTORY_DELETE') {
+        const encodedQuery = encodeURIComponent(row.event.payload.query);
+        await apiRequest<SearchHistoryDto[]>(`/search-history?query=${encodedQuery}`, {
+          method: 'DELETE'
+        });
+      }
+
+      if (row.event.type === 'SEARCH_HISTORY_CLEAR') {
+        await apiRequest<SearchHistoryDto[]>('/search-history', {
           method: 'DELETE'
         });
       }

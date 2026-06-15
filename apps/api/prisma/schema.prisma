@@ -33,6 +33,7 @@ model User {
   wordReviewEvents   UserWordReviewEvent[]
   wordGroups         WordGroup[]
   wordNotes          WordNote[]
+  searchHistories    SearchHistory[]
 
   @@map("users")
 }
@@ -225,4 +226,17 @@ model WordNote {
   @@unique([userId, progressId])
   @@index([userId])
   @@map("word_notes")
+}
+
+model SearchHistory {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  query       String
+  searchedAt  DateTime @default(now()) @map("searched_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, query])
+  @@index([userId, searchedAt])
+  @@map("search_histories")
 }
