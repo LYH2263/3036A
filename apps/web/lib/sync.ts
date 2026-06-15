@@ -43,6 +43,23 @@ export async function syncOfflineQueue(): Promise<{ synced: number; failed: numb
         });
       }
 
+      if (row.event.type === 'WORD_NOTE_UPSERT') {
+        await apiRequest(`/word-notes/progress/${row.event.payload.progressId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            content: row.event.payload.content,
+            expectedVersion: row.event.payload.expectedVersion,
+            clientEventId: row.event.clientEventId
+          })
+        });
+      }
+
+      if (row.event.type === 'WORD_NOTE_DELETE') {
+        await apiRequest(`/word-notes/progress/${row.event.payload.progressId}`, {
+          method: 'DELETE'
+        });
+      }
+
       await removeOfflineEvent(row.id);
       synced += 1;
     } catch (_error) {

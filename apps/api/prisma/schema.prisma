@@ -32,6 +32,7 @@ model User {
   grammarAttempts    GrammarAttempt[]
   wordReviewEvents   UserWordReviewEvent[]
   wordGroups         WordGroup[]
+  wordNotes          WordNote[]
 
   @@map("users")
 }
@@ -64,6 +65,7 @@ model UserWordProgress {
   wordEntry      WordEntry             @relation(fields: [wordEntryId], references: [id], onDelete: Cascade)
   reviewEvents   UserWordReviewEvent[]
   groups         WordGroup[]           @relation("WordGroupProgresses")
+  note           WordNote?
 
   @@unique([userId, wordEntryId])
   @@index([userId, nextReviewAt])
@@ -206,4 +208,21 @@ model GrammarMistakeRetryEvent {
   @@unique([userId, clientEventId])
   @@index([userId, createdAt])
   @@map("grammar_mistake_retry_events")
+}
+
+model WordNote {
+  id         String           @id @default(uuid())
+  userId     String           @map("user_id")
+  progressId String           @map("progress_id")
+  content    String
+  version    Int              @default(1)
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  progress   UserWordProgress @relation(fields: [progressId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, progressId])
+  @@index([userId])
+  @@map("word_notes")
 }

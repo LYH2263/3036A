@@ -21,6 +21,7 @@ import { AppShell } from '../../components/app-shell';
 import { AssignGroupsDialog } from '../../components/assign-groups-dialog';
 import { GroupSidebar, type GroupFilter } from '../../components/group-sidebar';
 import { SyncButton } from '../../components/sync-button';
+import { WordNoteEditor } from '../../components/word-note-editor';
 import { apiRequest, ApiError } from '../../lib/api';
 import { useRequireAuth } from '../../lib/auth';
 import { enqueueOfflineEvent } from '../../lib/offline-queue';
@@ -320,6 +321,7 @@ export default function VocabularyPage() {
             void queryClient.invalidateQueries({ queryKey: ['user-words'] });
             void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
             void queryClient.invalidateQueries({ queryKey: ['word-groups'] });
+            void queryClient.invalidateQueries({ queryKey: ['word-note'] });
           }}
         />
 
@@ -646,6 +648,8 @@ export default function VocabularyPage() {
                                 </button>
                               </div>
                             ) : null}
+
+                            <WordNoteEditor progressId={item.id} testIdPrefix={`review-note-${item.id}`} />
                           </div>
                         </div>
                       </div>
@@ -733,6 +737,8 @@ export default function VocabularyPage() {
                               ) : null}
                               <span>难度系数：{item.easeFactor.toFixed(2)}</span>
                             </div>
+
+                            <WordNoteEditor progressId={item.id} testIdPrefix={`library-note-${item.id}`} />
                           </div>
                         </div>
                       </div>

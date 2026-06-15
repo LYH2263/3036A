@@ -38,6 +38,23 @@ export interface WordGroupDetailDto {
   updatedAt: string;
 }
 
+export interface WordNoteDto {
+  id: string;
+  progressId: string;
+  content: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertWordNoteResultDto {
+  created?: boolean;
+  updated?: boolean;
+  deleted?: boolean;
+  note: WordNoteDto | null;
+  clientEventId?: string;
+}
+
 export interface UserWordProgressDto {
   id: string;
   wordEntryId: string;
@@ -173,7 +190,9 @@ export interface StatsOverviewDto {
 export type OfflineQueueEvent =
   | WordReviewEvent
   | GrammarAttemptEvent
-  | GrammarMistakeRetryEvent;
+  | GrammarMistakeRetryEvent
+  | WordNoteUpsertEvent
+  | WordNoteDeleteEvent;
 
 export interface WordReviewEvent {
   type: 'WORD_REVIEW';
@@ -204,6 +223,26 @@ export interface GrammarMistakeRetryEvent {
   clientEventId: string;
   payload: {
     answers: Array<{ mistakeId: string; answer: string }>;
+  };
+  createdAt: string;
+}
+
+export interface WordNoteUpsertEvent {
+  type: 'WORD_NOTE_UPSERT';
+  clientEventId: string;
+  payload: {
+    progressId: string;
+    content: string;
+    expectedVersion?: number;
+  };
+  createdAt: string;
+}
+
+export interface WordNoteDeleteEvent {
+  type: 'WORD_NOTE_DELETE';
+  clientEventId: string;
+  payload: {
+    progressId: string;
   };
   createdAt: string;
 }

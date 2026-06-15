@@ -9,6 +9,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { StatsModule } from './stats/stats.module';
 import { UserWordsModule } from './user-words/user-words.module';
 import { WordGroupsModule } from './word-groups/word-groups.module';
+import { WordNotesModule } from './word-notes/word-notes.module';
 import { WordsModule } from './words/words.module';
 
 @Module({
@@ -27,6 +28,7 @@ import { WordsModule } from './words/words.module';
     WordsModule,
     UserWordsModule,
     WordGroupsModule,
+    WordNotesModule,
     GrammarModule,
     StatsModule
   ],
