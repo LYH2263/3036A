@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16
+    container_name: lexigram-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: lexigram
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d lexigram']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: lexigram-api
+    environment:
+      PORT: 4000
+      JWT_SECRET: lexigram-dev-secret
+      JWT_EXPIRES_IN: 7d
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/lexigram?schema=public
+    ports:
+      - '4000:4000'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: lexigram-web
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:4000/api
+    ports:
+      - '3000:3000'
+    depends_on:
+      - api
+
+volumes:
+  pg_data:

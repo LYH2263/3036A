@@ -1,0 +1,32 @@
+{
+  "name": "lexigram-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "packageManager": "pnpm@10.26.1",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,green \"pnpm dev:web\" \"pnpm dev:api\"",
+    "dev:web": "pnpm --filter @lexigram/web dev",
+    "dev:api": "pnpm --filter @lexigram/api dev",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm e2e:smoke",
+    "build": "pnpm -r --if-present build",
+    "prisma:generate": "pnpm --filter @lexigram/api prisma:generate",
+    "prisma:migrate": "pnpm --filter @lexigram/api prisma:migrate",
+    "prisma:seed": "pnpm --filter @lexigram/api prisma:seed",
+    "e2e:install": "playwright install chromium",
+    "e2e:docker:up": "docker compose up -d --build",
+    "e2e:docker:down": "docker compose down -v",
+    "e2e:smoke": "cross-env E2E_KEEP_SERVICES=1 playwright test -c e2e/playwright.config.ts --grep @smoke",
+    "e2e:full": "cross-env E2E_KEEP_SERVICES=0 playwright test -c e2e/playwright.config.ts --grep \"@smoke|@full\""
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "concurrently": "9.2.1",
+    "cross-env": "10.1.0",
+    "wait-on": "8.0.5"
+  }
+}

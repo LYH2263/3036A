@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WordStatus {
+  learning
+  known
+}
+
+enum GrammarLevel {
+  basic
+  intermediate
+  advanced
+}
+
+enum QuestionType {
+  single_choice
+  fill_blank
+}
+
+model User {
+  id                 String               @id @default(uuid())
+  email              String               @unique
+  passwordHash       String               @map("password_hash")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  wordProgresses     UserWordProgress[]
+  grammarAttempts    GrammarAttempt[]
+  wordReviewEvents   UserWordReviewEvent[]
+
+  @@map("users")
+}
+
+model WordEntry {
+  id              String             @id @default(uuid())
+  word            String             @unique
+  definition      String
+  exampleSentence String             @map("example_sentence")
+  phonetic        String             @default("")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  progresses      UserWordProgress[]
+
+  @@index([word])
+  @@map("word_entries")
+}
+
+model UserWordProgress {
+  id             String                @id @default(uuid())
+  userId         String                @map("user_id")
+  wordEntryId    String                @map("word_entry_id")
+  status         WordStatus            @default(learning)
+  easeFactor     Float                 @default(2.5) @map("ease_factor")
+  intervalDays   Int                   @default(1) @map("interval_days")
+  nextReviewAt   DateTime              @map("next_review_at")
+  lastReviewedAt DateTime?             @map("last_reviewed_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wordEntry      WordEntry             @relation(fields: [wordEntryId], references: [id], onDelete: Cascade)
+  reviewEvents   UserWordReviewEvent[]
+
+  @@unique([userId, wordEntryId])
+  @@index([userId, nextReviewAt])
+  @@map("user_word_progresses")
+}
+
+model UserWordReviewEvent {
+  id                String           @id @default(uuid())
+  userId            String           @map("user_id")
+  progressId        String           @map("progress_id")
+  clientEventId     String           @map("client_event_id")
+  known             Boolean
+  easeFactorAfter   Float            @map("ease_factor_after")
+  intervalDaysAfter Int              @map("interval_days_after")
+  reviewedAt        DateTime         @map("reviewed_at")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  progress          UserWordProgress @relation(fields: [progressId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientEventId])
+  @@index([userId, reviewedAt])
+  @@map("user_word_review_events")
+}
+
+model GrammarLesson {
+  id          String           @id @default(uuid())
+  title       String           @unique
+  level       GrammarLevel
+  content     String
+  createdAt   DateTime         @default(now()) @map("created_at")
+  questions   GrammarQuestion[]
+  attempts    GrammarAttempt[]
+
+  @@index([level])
+  @@map("grammar_lessons")
+}
+
+model GrammarQuestion {
+  id          String       @id @default(uuid())
+  lessonId    String       @map("lesson_id")
+  type        QuestionType
+  prompt      String
+  options     Json
+  answer      String
+  explanation String
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  lesson      GrammarLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId])
+  @@map("grammar_questions")
+}
+
+model GrammarAttempt {
+  id             String       @id @default(uuid())
+  userId         String       @map("user_id")
+  lessonId       String       @map("lesson_id")
+  clientEventId  String       @map("client_event_id")
+  score          Int
+  totalQuestions Int          @map("total_questions")
+  correctCount   Int          @map("correct_count")
+  answers        Json
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson         GrammarLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientEventId])
+  @@index([userId, createdAt])
+  @@map("grammar_attempts")
+}

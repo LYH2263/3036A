@@ -1,0 +1,229 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --bg-base: #f4f7ff;
+  --bg-soft: #edf2ff;
+  --surface: #ffffff;
+  --surface-soft: #f8fbff;
+  --text-strong: #0f172a;
+  --text-default: #1e293b;
+  --text-muted: #64748b;
+  --border-default: #d7e2f2;
+  --border-strong: #b8c9e6;
+  --brand-500: #2563eb;
+  --brand-600: #1d4ed8;
+  --brand-700: #1e40af;
+  --success-500: #16a34a;
+  --warning-500: #d97706;
+  --danger-500: #dc2626;
+  --radius-card: 16px;
+  --radius-control: 12px;
+  --ring-color: rgba(37, 99, 235, 0.26);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06), 0 12px 28px rgba(30, 64, 175, 0.06);
+  --shadow-card-hover: 0 2px 6px rgba(15, 23, 42, 0.08), 0 18px 34px rgba(30, 64, 175, 0.12);
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 220ms;
+  --ease-emphasis: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+body {
+  @apply min-h-screen antialiased;
+  color: var(--text-default);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(59, 130, 246, 0.12), transparent 65%),
+    radial-gradient(1000px 500px at 90% -20%, rgba(125, 211, 252, 0.14), transparent 60%),
+    var(--bg-base);
+  font-family: var(--font-body), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC',
+    sans-serif;
+  line-height: 1.5;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5 {
+  color: var(--text-strong);
+  font-family: var(--font-heading), 'Songti SC', 'Noto Serif CJK SC', serif;
+  letter-spacing: -0.01em;
+}
+
+* {
+  border-color: var(--border-default);
+}
+
+::selection {
+  color: var(--text-strong);
+  background: rgba(37, 99, 235, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer components {
+  .page-title {
+    @apply text-xl font-semibold sm:text-2xl;
+  }
+
+  .page-subtitle {
+    @apply text-sm text-slate-500;
+  }
+
+  .section-title {
+    @apply flex items-center gap-2 text-base font-semibold text-slate-900;
+  }
+
+  .section-subtitle {
+    @apply text-sm text-slate-500;
+  }
+
+  .stat-label {
+    @apply flex items-center gap-2 text-xs font-medium text-slate-500;
+  }
+
+  .stat-value {
+    @apply mt-2 text-2xl font-semibold tracking-tight text-slate-900;
+  }
+
+  .card {
+    @apply rounded-[var(--radius-card)] border bg-white p-4;
+    border-color: var(--border-default);
+    box-shadow: var(--shadow-card);
+    transition:
+      transform var(--motion-base) var(--ease-emphasis),
+      box-shadow var(--motion-base) var(--ease-emphasis),
+      border-color var(--motion-base) var(--ease-emphasis);
+  }
+
+  .card-hover {
+    @apply hover:-translate-y-0.5 hover:border-slate-300;
+    box-shadow: var(--shadow-card);
+  }
+
+  .card-hover:hover {
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  .input-control {
+    @apply h-11 w-full rounded-[var(--radius-control)] border border-slate-300 bg-white px-3 text-sm text-slate-800;
+    transition:
+      border-color var(--motion-fast) var(--ease-emphasis),
+      box-shadow var(--motion-fast) var(--ease-emphasis),
+      background-color var(--motion-fast) var(--ease-emphasis);
+  }
+
+  .input-control::placeholder {
+    color: var(--text-muted);
+  }
+
+  .input-control:hover {
+    border-color: var(--border-strong);
+  }
+
+  .input-control:focus-visible {
+    border-color: var(--brand-500);
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring-color);
+  }
+
+  .status-success {
+    @apply rounded-[var(--radius-control)] border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700;
+  }
+
+  .status-warning {
+    @apply rounded-[var(--radius-control)] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700;
+  }
+
+  .status-error {
+    @apply rounded-[var(--radius-control)] border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700;
+  }
+
+  .status-neutral {
+    @apply rounded-[var(--radius-control)] border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600;
+  }
+
+  .btn-primary {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-control)] px-4 text-sm font-medium text-white;
+    background: linear-gradient(180deg, var(--brand-500) 0%, var(--brand-600) 100%);
+    transition:
+      transform var(--motion-fast) var(--ease-emphasis),
+      background-color var(--motion-fast) var(--ease-emphasis),
+      opacity var(--motion-fast) var(--ease-emphasis);
+  }
+
+  .btn-primary:hover {
+    background: linear-gradient(180deg, var(--brand-600) 0%, var(--brand-700) 100%);
+  }
+
+  .btn-primary:active {
+    transform: translateY(1px);
+  }
+
+  .btn-primary:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring-color);
+  }
+
+  .btn-primary:disabled {
+    @apply cursor-not-allowed opacity-60;
+    transform: none;
+    background: linear-gradient(180deg, #94a3b8 0%, #64748b 100%);
+  }
+
+  .btn-secondary {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-control)] border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700;
+    transition:
+      transform var(--motion-fast) var(--ease-emphasis),
+      border-color var(--motion-fast) var(--ease-emphasis),
+      background-color var(--motion-fast) var(--ease-emphasis);
+  }
+
+  .btn-secondary:hover {
+    @apply border-slate-400 bg-slate-100;
+  }
+
+  .btn-secondary:active {
+    transform: translateY(1px);
+  }
+
+  .btn-secondary:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring-color);
+  }
+
+  .btn-secondary:disabled {
+    @apply cursor-not-allowed bg-slate-100 text-slate-400;
+  }
+
+  .nav-chip {
+    @apply inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-3 text-sm text-slate-700;
+    transition:
+      border-color var(--motion-fast) var(--ease-emphasis),
+      background-color var(--motion-fast) var(--ease-emphasis),
+      color var(--motion-fast) var(--ease-emphasis);
+  }
+
+  .nav-chip:hover {
+    @apply border-slate-300 bg-slate-200 text-slate-800;
+  }
+
+  .nav-chip:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--ring-color);
+  }
+
+  .nav-chip-active {
+    @apply border-brand-200 bg-brand-100 text-brand-700;
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": 3036,
+  "tech_type": "fullstack",
+  "prompt": "开发一个具有高潜力的单词语法英语学习工具网页应用。该网页应包含以下核心功能模块：词汇学习系统（支持单词查询、发音、例句展示、记忆曲线复习计划）、语法教学模块（涵盖基础到高级语法知识点讲解、交互式语法练习）、用户进度追踪系统（学习数据可视化、成就解锁机制）。设计需遵循现代UI/UX原则，确保界面直观易用，响应式布局适配桌面端与移动端。实现用户注册登录功能，支持学习数据本地存储与云端同步。系统应具备良好的扩展性，便于后续添加听力练习、口语测评等功能模块。",
+  "framework": "modern_frontend_framework",
+  "backend": "multiple_backend_stacks_supported",
+  "database": "multiple_database_types_supported",
+  "platform": "",
+  "scores": {
+    "clarity": 4,
+    "complexity": 3.7,
+    "verifiability": 1.8,
+    "manual_verify": 3,
+    "automatable": 1,
+    "total": 3.37,
+    "grade": "B",
+    "reproducibility": 1,
+    "type_weight": 3.25,
+    "weighted_total": 10.95,
+    "complexity_rule": 3.0,
+    "complexity_llm": 5.0,
+    "feasibility": 3,
+    "feasibility_confidence": 0.74
+  },
+  "impl_score": 0,
+  "selection_review": null
+}

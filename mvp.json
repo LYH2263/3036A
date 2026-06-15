@@ -1,0 +1,449 @@
+{
+  "project_name": "lexigram",
+  "project_name_cn": "词语法英语学习工具（MVP）",
+  "description": "一个面向英语学习者的 Web 应用（全栈），提供词汇查询与记忆曲线复习、语法知识点学习与交互练习、学习进度可视化与基础成就机制。支持注册登录、学习数据本地存储与云端同步，采用响应式 UI 以适配桌面与移动端，并保留可扩展的模块化架构以便后续加入听力/口语等能力。",
+  "target_users": [
+    "想系统背单词并按复习计划巩固的英语学习者（A2-C1）",
+    "需要按语法知识点学习并进行练习的自学者/学生",
+    "希望在手机与电脑间同步学习进度的用户"
+  ],
+  "tech_stack": {
+    "frontend": "Next.js (React) + TypeScript + Tailwind CSS + Zustand + React Query",
+    "backend": "Node.js (NestJS) + REST API + JWT Auth",
+    "database": "PostgreSQL (via Prisma ORM)",
+    "reasoning": "Next.js 便于快速构建响应式页面与组件复用；NestJS 提供清晰的模块化架构与可扩展性；PostgreSQL 适合结构化学习数据与统计查询；Prisma 提升开发效率并保证数据一致性。发音在 MVP 使用浏览器 Web Speech API（TTS）避免依赖付费外部服务。"
+  },
+  "core_features": [
+    {
+      "module": "账号与同步",
+      "features": [
+        "邮箱注册/登录（JWT），退出登录",
+        "云端保存用户学习数据（单词进度、语法练习记录）",
+        "本地存储（IndexedDB）缓存学习记录，登录后可一键同步到云端"
+      ],
+      "priority": "P0"
+    },
+    {
+      "module": "词汇学习与复习",
+      "features": [
+        "单词查询（基于内置词库/自建词条），展示释义、音标（可选）、例句",
+        "发音播放（浏览器 TTS）",
+        "加入生词本并生成复习计划（简化记忆曲线：基于间隔与正确率调整下次复习时间）",
+        "今日待复习列表与“认识/不认识”复习反馈"
+      ],
+      "priority": "P0"
+    },
+    {
+      "module": "语法教学与练习",
+      "features": [
+        "语法知识点列表与详情（分级：基础/进阶/高级标签）",
+        "每个知识点配套 3-10 道选择题/填空题（MVP 题型）",
+        "练习提交与即时判题，记录正确率与错题"
+      ],
+      "priority": "P0"
+    },
+    {
+      "module": "进度追踪与成就",
+      "features": [
+        "学习数据概览：今日学习/复习数量、连续学习天数、语法练习正确率",
+        "基础成就解锁：例如“累计加入 20 个单词”“连续学习 3 天”（仅展示已解锁列表）"
+      ],
+      "priority": "P1"
+    }
+  ],
+  "pages": [
+    {
+      "path": "/auth",
+      "name": "登录/注册",
+      "description": "用户注册、登录与进入应用。",
+      "key_elements": [
+        "邮箱输入、密码输入",
+        "注册/登录切换",
+        "错误提示（账号已存在/密码错误/格式不合法）",
+        "登录成功后跳转 Dashboard"
+      ]
+    },
+    {
+      "path": "/dashboard",
+      "name": "学习面板",
+      "description": "展示学习概览与快捷入口（待复习、继续语法练习）。",
+      "key_elements": [
+        "今日待复习数量与开始复习按钮",
+        "最近学习统计（今日/本周简版）",
+        "连续学习天数",
+        "快捷入口：词汇、语法、进度"
+      ]
+    },
+    {
+      "path": "/vocabulary",
+      "name": "词汇学习",
+      "description": "单词查询、加入生词本、待复习列表与复习流程。",
+      "key_elements": [
+        "搜索框（按 word 前缀/包含查询）",
+        "单词卡片：释义、例句、TTS 发音按钮",
+        "加入/移出生词本按钮",
+        "今日待复习列表与复习面板（认识/不认识）"
+      ]
+    },
+    {
+      "path": "/grammar",
+      "name": "语法学习与练习",
+      "description": "语法知识点浏览、详情阅读与交互练习。",
+      "key_elements": [
+        "知识点列表（按级别筛选）",
+        "知识点详情：讲解、例句",
+        "练习题组件（选择/填空）",
+        "提交后即时反馈与解析（简版）"
+      ]
+    },
+    {
+      "path": "/progress",
+      "name": "进度与成就",
+      "description": "学习数据可视化与已解锁成就展示。",
+      "key_elements": [
+        "单词：累计加入、累计复习、复习正确率（简版）",
+        "语法：累计练习题数、正确率",
+        "连续学习天数",
+        "已解锁成就列表"
+      ]
+    }
+  ],
+  "data_models": [
+    {
+      "name": "User",
+      "fields": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "description": "用户唯一标识"
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "description": "登录邮箱（唯一）"
+        },
+        {
+          "name": "password_hash",
+          "type": "string",
+          "description": "密码哈希"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "description": "注册时间"
+        }
+      ]
+    },
+    {
+      "name": "WordEntry",
+      "fields": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "description": "词条唯一标识"
+        },
+        {
+          "name": "word",
+          "type": "string",
+          "description": "单词（小写存储，索引查询）"
+        },
+        {
+          "name": "definition",
+          "type": "text",
+          "description": "释义（MVP 可为简要释义）"
+        },
+        {
+          "name": "example_sentence",
+          "type": "text",
+          "description": "例句（至少 1 条）"
+        },
+        {
+          "name": "phonetic",
+          "type": "string",
+          "description": "音标/读音提示（可为空字符串但字段存在）"
+        }
+      ]
+    },
+    {
+      "name": "UserWordProgress",
+      "fields": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "description": "进度记录唯一标识"
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "description": "所属用户"
+        },
+        {
+          "name": "word_entry_id",
+          "type": "uuid",
+          "description": "对应词条"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "description": "学习状态：learning|known"
+        },
+        {
+          "name": "ease_factor",
+          "type": "float",
+          "description": "记忆难度系数（用于调整复习间隔，MVP 默认 2.5）"
+        },
+        {
+          "name": "interval_days",
+          "type": "int",
+          "description": "当前复习间隔天数（MVP 从 1 开始）"
+        },
+        {
+          "name": "next_review_at",
+          "type": "timestamp",
+          "description": "下次复习时间"
+        },
+        {
+          "name": "last_reviewed_at",
+          "type": "timestamp",
+          "description": "上次复习时间"
+        }
+      ]
+    },
+    {
+      "name": "GrammarLesson",
+      "fields": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "description": "语法知识点唯一标识"
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "description": "标题"
+        },
+        {
+          "name": "level",
+          "type": "string",
+          "description": "级别：basic|intermediate|advanced"
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "description": "讲解内容（富文本简化为 HTML/Markdown 字符串存储）"
+        }
+      ]
+    },
+    {
+      "name": "GrammarAttempt",
+      "fields": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "description": "练习记录唯一标识"
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "description": "所属用户"
+        },
+        {
+          "name": "lesson_id",
+          "type": "uuid",
+          "description": "所属语法知识点"
+        },
+        {
+          "name": "score",
+          "type": "int",
+          "description": "得分（例如 0-100 或正确题数）"
+        },
+        {
+          "name": "total_questions",
+          "type": "int",
+          "description": "题目总数"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp",
+          "description": "提交时间"
+        }
+      ]
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-CORE-001",
+      "category": "core",
+      "given": "用户在未登录状态访问应用",
+      "when": "用户使用有效邮箱与密码完成注册并登录",
+      "then": "系统返回有效 JWT，会话保持，页面跳转至 /dashboard 并显示该用户的空白初始统计"
+    },
+    {
+      "id": "AC-CORE-002",
+      "category": "core",
+      "given": "用户已登录且词库中存在目标单词",
+      "when": "用户在 /vocabulary 输入单词进行搜索并打开词条详情",
+      "then": "页面展示释义、例句，点击发音按钮可通过浏览器 TTS 发声，并可将该词加入生词本生成 next_review_at"
+    },
+    {
+      "id": "AC-CORE-003",
+      "category": "core",
+      "given": "用户已加入至少 1 个生词且到达 next_review_at",
+      "when": "用户进入 /vocabulary 的今日待复习并完成“认识/不认识”反馈",
+      "then": "系统根据反馈更新 interval_days/ease_factor 与 next_review_at，并在复习列表中移除已完成项"
+    },
+    {
+      "id": "AC-EDGE-001",
+      "category": "edge",
+      "given": "用户在离线或网络不稳定场景学习（浏览器可写入 IndexedDB）",
+      "when": "用户进行复习或提交语法练习结果",
+      "then": "数据先保存到本地队列且页面提示“待同步”，当网络恢复并重新登录/触发同步后，云端数据与本地数据合并且不产生重复记录"
+    },
+    {
+      "id": "AC-ERROR-001",
+      "category": "error",
+      "given": "用户输入错误密码或无效邮箱格式",
+      "when": "用户提交登录请求",
+      "then": "系统返回明确错误信息（不泄露账号是否存在的敏感细节），前端以表单级提示展示且不跳转页面"
+    },
+    {
+      "id": "AC-USABILITY-001",
+      "category": "usability",
+      "given": "用户使用移动端屏幕访问 /vocabulary 与 /grammar",
+      "when": "用户进行搜索、开始复习或开始练习",
+      "then": "页面布局在 360px 宽度下可用（无横向滚动），主要按钮可触达且交互反馈清晰（加载态/禁用态/结果提示）"
+    },
+    {
+      "id": "AC-CORE-004",
+      "category": "core",
+      "given": "用户已登录且存在语法知识点与题目",
+      "when": "用户在 /grammar 选择一个知识点并提交练习",
+      "then": "系统保存一次 GrammarAttempt 并在页面展示得分与正确率（简版）"
+    },
+    {
+      "id": "AC-USABILITY-002",
+      "category": "usability",
+      "given": "用户在 /dashboard 或 /progress 查看统计",
+      "when": "系统计算并渲染学习数据",
+      "then": "统计数字在 2 秒内展示完成，且为空数据时显示友好的空状态引导（例如“去查询并加入第一个单词”）"
+    }
+  ],
+  "api_endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/auth/register",
+      "description": "邮箱注册，创建用户并返回 JWT",
+      "auth": "none"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "description": "邮箱登录，校验密码并返回 JWT",
+      "auth": "none"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "description": "获取当前用户信息（用于会话校验与初始化）",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/words",
+      "description": "查询词库（query: q），返回匹配词条列表（分页可选，MVP 返回前 N 条）",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/user-words",
+      "description": "加入生词本：为用户创建 UserWordProgress（若已存在则返回现有记录）",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/user-words/reviews/today",
+      "description": "获取今日待复习列表（next_review_at <= now）",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/user-words/:id/review",
+      "description": "提交复习反馈（known: true/false），更新记忆曲线参数与 next_review_at",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/grammar/lessons",
+      "description": "获取语法知识点列表（可按 level 过滤）",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/grammar/lessons/:id",
+      "description": "获取语法知识点详情与练习题（MVP：题目内嵌返回）",
+      "auth": "required"
+    },
+    {
+      "method": "POST",
+      "path": "/api/grammar/lessons/:id/attempts",
+      "description": "提交一次练习结果并保存 GrammarAttempt，返回得分与统计",
+      "auth": "required"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stats/overview",
+      "description": "获取用户学习概览统计（单词加入/复习、语法练习、连续天数、已解锁成就简版）",
+      "auth": "required"
+    }
+  ],
+  "out_of_scope": [
+    "听力练习、口语测评、录音与语音识别评分",
+    "付费订阅、支付、广告投放与增值服务",
+    "社交功能（好友、排行榜、分享打卡）",
+    "多语言界面与国际化完整方案",
+    "复杂题型（写作批改、开放式问答的智能评测）",
+    "第三方付费词典/翻译 API 集成（MVP 使用自建词库与浏览器 TTS）",
+    "完整离线词库下载包与端到端加密同步"
+  ],
+  "implementation_milestones": [
+    {
+      "phase": "Phase 1 - 基础架构与认证",
+      "tasks": [
+        "搭建 Next.js 前端工程：路由、全局状态、基础 UI 组件与响应式布局规范",
+        "搭建 NestJS 后端工程：模块划分、JWT 鉴权、中间件与统一错误处理",
+        "搭建 PostgreSQL + Prisma：User/WordEntry/UserWordProgress/GrammarLesson/GrammarAttempt 表结构与迁移",
+        "实现 /auth 页面与注册登录接口联调（register/login/me）"
+      ],
+      "acceptance": [
+        "用户可注册登录并访问受保护页面（/dashboard 等），未登录访问会跳转 /auth",
+        "后端接口返回格式统一，错误码与错误信息可被前端正确展示"
+      ]
+    },
+    {
+      "phase": "Phase 2 - 词汇学习 MVP",
+      "tasks": [
+        "导入最小可用词库（例如 2000 高频词）到 WordEntry（含释义与例句）",
+        "实现词汇查询接口与 /vocabulary 页面搜索结果列表与详情展示",
+        "实现浏览器 TTS 发音按钮（前端）",
+        "实现加入生词本、今日待复习列表、复习反馈更新记忆曲线（简化算法）"
+      ],
+      "acceptance": [
+        "用户可以搜索到词条并查看释义/例句，发音按钮可播放",
+        "用户可加入生词本并在到期后出现在今日待复习，复习后 next_review_at 会更新"
+      ]
+    },
+    {
+      "phase": "Phase 3 - 语法练习与进度统计",
+      "tasks": [
+        "导入最小语法知识点与题目（例如 15 个知识点，每个 3-10 题）",
+        "实现 /grammar 列表、详情与练习提交流程（保存 GrammarAttempt）",
+        "实现 /dashboard 与 /progress 页面展示 overview 统计与空状态",
+        "实现本地缓存与云端同步最小闭环：离线写入 IndexedDB 队列、在线后提交到后端并去重（以本地生成的 client_event_id 或 attempt id 去重）"
+      ],
+      "acceptance": [
+        "用户可完成语法练习并看到得分，记录可在 /progress 反映出来",
+        "离线产生的复习/练习记录在恢复网络后可同步到云端且不会重复计数"
+      ]
+    }
+  ]
+}
