@@ -1,3 +1,5 @@
+export type ReviewRating = 'completely_forgot' | 'fuzzy' | 'recognized' | 'mastered';
+
 export type GrammarLevel = 'basic' | 'intermediate' | 'advanced';
 
 export type TimeLimitMode = 'per_question' | 'per_quiz';
@@ -36,6 +38,16 @@ export interface WordGroupDetailDto {
   color: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ReviewUserWordResultDto {
+  deduplicated: boolean;
+  progress: UserWordProgressDto;
+  nextReviewPreview: {
+    intervalDays: number;
+    easeFactor: number;
+    nextReviewAt: string;
+  };
 }
 
 export interface WordNoteDto {
@@ -228,6 +240,7 @@ export interface WordReviewEvent {
   payload: {
     progressId: string;
     known: boolean;
+    rating?: ReviewRating;
   };
   createdAt: string;
 }

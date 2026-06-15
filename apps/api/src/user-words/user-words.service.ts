@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ReviewRating } from '@prisma/client';
+import type { ReviewUserWordResultDto } from '@lexigram/shared';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { formatStandardDateTime } from '../common/time.util';
@@ -132,7 +133,18 @@ export class UserWordsService {
     }
   }
 
-  async review(userId: string, progressId: string, dto: ReviewUserWordDto) {
+  private normalizeRating(dto: ReviewUserWordDto): { rating: ReviewRating; known: boolean } {
+    if (dto.rating) {
+      const known = dto.rating === ReviewRating.recognized || dto.rating === ReviewRating.mastered;
+      return { rating: dto.rating, known };
+    }
+
+    const known = dto.known ?? false;
+    const rating = known ? ReviewRating.recognized : ReviewRating.fuzzy;
+    return { rating, known };
+  }
+
+  async review(userId: string, progressId: string, dto: ReviewUserWordDto): Promise<ReviewUserWordResultDto> {
     const progress = await this.prisma.userWordProgress.findUnique({
       where: { id: progressId },
       include: {
@@ -148,6 +160,7 @@ export class UserWordsService {
       });
     }
 
+    const { rating, known } = this.normalizeRating(dto);
     const clientEventId = dto.clientEventId?.trim() || randomUUID();
 
     const existedEvent = await this.prisma.userWordReviewEvent.findUnique({
@@ -172,21 +185,30 @@ export class UserWordsService {
         });
       }
 
+      const now = new Date();
+      const nextPreview = this.calculateNext(progress.easeFactor, progress.intervalDays, rating);
+      const nextReviewAtPreview = new Date(now.getTime() + nextPreview.intervalDays * 24 * 60 * 60 * 1000);
+
       return {
         deduplicated: true,
-        progress: this.mapProgress(latest)
+        progress: this.mapProgress(latest),
+        nextReviewPreview: {
+          intervalDays: nextPreview.intervalDays,
+          easeFactor: nextPreview.easeFactor,
+          nextReviewAt: formatStandardDateTime(nextReviewAtPreview)
+        }
       };
     }
 
     const now = new Date();
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const next = this.calculateNext(progress.easeFactor, progress.intervalDays, dto.known);
-      const nextReviewAt = new Date(now.getTime() + next.intervalDays * 24 * 60 * 60 * 1000);
+    const next = this.calculateNext(progress.easeFactor, progress.intervalDays, rating);
+    const nextReviewAt = new Date(now.getTime() + next.intervalDays * 24 * 60 * 60 * 1000);
 
+    const updated = await this.prisma.$transaction(async (tx) => {
       const updatedProgress = await tx.userWordProgress.update({
         where: { id: progressId },
         data: {
-          status: dto.known ? 'known' : 'learning',
+          status: known ? 'known' : 'learning',
           easeFactor: next.easeFactor,
           intervalDays: next.intervalDays,
           nextReviewAt,
@@ -203,7 +225,8 @@ export class UserWordsService {
           userId,
           progressId,
           clientEventId,
-          known: dto.known,
+          known,
+          rating,
           easeFactorAfter: next.easeFactor,
           intervalDaysAfter: next.intervalDays,
           reviewedAt: now
@@ -215,19 +238,55 @@ export class UserWordsService {
 
     return {
       deduplicated: false,
-      progress: this.mapProgress(updated)
+      progress: this.mapProgress(updated),
+      nextReviewPreview: {
+        intervalDays: next.intervalDays,
+        easeFactor: next.easeFactor,
+        nextReviewAt: formatStandardDateTime(nextReviewAt)
+      }
     };
   }
 
-  private calculateNext(easeFactor: number, intervalDays: number, known: boolean) {
-    if (known) {
-      const nextEase = Math.min(3.0, Number((easeFactor + 0.15).toFixed(2)));
-      const nextInterval = Math.max(1, Math.round(intervalDays * nextEase));
-      return { easeFactor: nextEase, intervalDays: nextInterval };
+  private calculateNext(easeFactor: number, intervalDays: number, rating: ReviewRating) {
+    const MIN_EASE = 1.3;
+    const MAX_EASE = 3.0;
+
+    let easeDelta: number;
+    let intervalMultiplier: number;
+
+    switch (rating) {
+      case ReviewRating.completely_forgot:
+        easeDelta = -0.3;
+        intervalMultiplier = 0;
+        break;
+      case ReviewRating.fuzzy:
+        easeDelta = -0.15;
+        intervalMultiplier = 0.5;
+        break;
+      case ReviewRating.recognized:
+        easeDelta = 0.15;
+        intervalMultiplier = 1;
+        break;
+      case ReviewRating.mastered:
+        easeDelta = 0.3;
+        intervalMultiplier = 1.2;
+        break;
+      default:
+        easeDelta = 0;
+        intervalMultiplier = 1;
     }
 
-    const nextEase = Math.max(1.3, Number((easeFactor - 0.2).toFixed(2)));
-    return { easeFactor: nextEase, intervalDays: 1 };
+    const nextEase = Math.max(MIN_EASE, Math.min(MAX_EASE, Number((easeFactor + easeDelta).toFixed(2))));
+
+    let nextInterval: number;
+    if (intervalMultiplier === 0) {
+      nextInterval = 1;
+    } else {
+      const effectiveMultiplier = nextEase * intervalMultiplier;
+      nextInterval = Math.max(1, Math.round(intervalDays * effectiveMultiplier));
+    }
+
+    return { easeFactor: nextEase, intervalDays: nextInterval };
   }
 
   private mapProgress(item: ProgressWithWordAndGroups) {

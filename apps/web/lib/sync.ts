@@ -12,12 +12,16 @@ export async function syncOfflineQueue(): Promise<{ synced: number; failed: numb
   for (const row of events) {
     try {
       if (row.event.type === 'WORD_REVIEW') {
+        const body: Record<string, unknown> = {
+          known: row.event.payload.known,
+          clientEventId: row.event.clientEventId
+        };
+        if (row.event.payload.rating) {
+          body.rating = row.event.payload.rating;
+        }
         await apiRequest(`/user-words/${row.event.payload.progressId}/review`, {
           method: 'POST',
-          body: JSON.stringify({
-            known: row.event.payload.known,
-            clientEventId: row.event.clientEventId
-          })
+          body: JSON.stringify(body)
         });
       }
 

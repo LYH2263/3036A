@@ -1,6 +1,13 @@
 'use client';
 
-import type { SearchHistoryDto, UserWordProgressDto, WordEntryDto, WordGroupDto } from '@lexigram/shared';
+import type {
+  ReviewRating,
+  ReviewUserWordResultDto,
+  SearchHistoryDto,
+  UserWordProgressDto,
+  WordEntryDto,
+  WordGroupDto
+} from '@lexigram/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -78,6 +85,106 @@ const DEBOUNCE_ADD_HISTORY_MS = 800;
 
 type TabType = 'review' | 'library';
 
+interface RatingOption {
+  value: ReviewRating;
+  label: string;
+  shortLabel: string;
+  btnClass: string;
+  description: string;
+}
+
+const RATING_OPTIONS: RatingOption[] = [
+  {
+    value: 'completely_forgot',
+    label: '完全不会',
+    shortLabel: '完全不会',
+    btnClass: 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200 hover:border-red-300',
+    description: '完全没印象，重新学习'
+  },
+  {
+    value: 'fuzzy',
+    label: '模糊',
+    shortLabel: '模糊',
+    btnClass: 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200 hover:border-amber-300',
+    description: '有点印象但不确定'
+  },
+  {
+    value: 'recognized',
+    label: '认识',
+    shortLabel: '认识',
+    btnClass: 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 hover:border-blue-300',
+    description: '想了一下能认出来'
+  },
+  {
+    value: 'mastered',
+    label: '非常熟',
+    shortLabel: '非常熟',
+    btnClass: 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 hover:border-emerald-300',
+    description: '一眼就认出来，非常熟悉'
+  }
+];
+
+const MIN_EASE = 1.3;
+const MAX_EASE = 3.0;
+
+function calculateNextPreview(
+  easeFactor: number,
+  intervalDays: number,
+  rating: ReviewRating
+): { intervalDays: number; easeFactor: number; nextReviewAt: string } {
+  let easeDelta: number;
+  let intervalMultiplier: number;
+
+  switch (rating) {
+    case 'completely_forgot':
+      easeDelta = -0.3;
+      intervalMultiplier = 0;
+      break;
+    case 'fuzzy':
+      easeDelta = -0.15;
+      intervalMultiplier = 0.5;
+      break;
+    case 'recognized':
+      easeDelta = 0.15;
+      intervalMultiplier = 1;
+      break;
+    case 'mastered':
+      easeDelta = 0.3;
+      intervalMultiplier = 1.2;
+      break;
+    default:
+      easeDelta = 0;
+      intervalMultiplier = 1;
+  }
+
+  const nextEase = Math.max(MIN_EASE, Math.min(MAX_EASE, Number((easeFactor + easeDelta).toFixed(2))));
+
+  let nextInterval: number;
+  if (intervalMultiplier === 0) {
+    nextInterval = 1;
+  } else {
+    const effectiveMultiplier = nextEase * intervalMultiplier;
+    nextInterval = Math.max(1, Math.round(intervalDays * effectiveMultiplier));
+  }
+
+  const nextDate = new Date();
+  nextDate.setDate(nextDate.getDate() + nextInterval);
+
+  return {
+    intervalDays: nextInterval,
+    easeFactor: nextEase,
+    nextReviewAt: nextDate.toLocaleDateString('zh-CN')
+  };
+}
+
+function formatIntervalLabel(days: number): string {
+  if (days === 1) return '明天';
+  if (days < 7) return `${days} 天后`;
+  if (days < 30) return `${Math.round(days / 7)} 周后`;
+  if (days < 365) return `${Math.round(days / 30)} 个月后`;
+  return `${Math.round(days / 365)} 年后`;
+}
+
 function buildQueryParams(filter: GroupFilter) {
   const params = new URLSearchParams();
   if (filter.type === 'group') {
@@ -98,6 +205,7 @@ export default function VocabularyPage() {
   const [voiceOptions, setVoiceOptions] = useState<SpeechVoiceOption[]>([]);
   const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>(AUTO_VOICE_VALUE);
   const [speechSupported, setSpeechSupported] = useState(false);
+  const [hoveredRating, setHoveredRating] = useState<{ progressId: string; rating: ReviewRating } | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabType>('review');
   const [filter, setFilter] = useState<GroupFilter>({ type: 'all' });
@@ -373,14 +481,23 @@ export default function VocabularyPage() {
   });
 
   const reviewMutation = useMutation({
-    mutationFn: async ({ progressId, known }: { progressId: string; known: boolean }) => {
+    mutationFn: async ({
+      progressId,
+      rating
+    }: {
+      progressId: string;
+      rating: ReviewRating;
+    }): Promise<{ queued: boolean; result?: ReviewUserWordResultDto }> => {
       const clientEventId =
         typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random()}`;
 
+      const known = rating === 'recognized' || rating === 'mastered';
+
       const payload = {
         known,
+        rating,
         clientEventId
       };
 
@@ -392,7 +509,8 @@ export default function VocabularyPage() {
           clientEventId,
           payload: {
             progressId,
-            known
+            known,
+            rating
           },
           createdAt: new Date().toISOString()
         });
@@ -401,19 +519,20 @@ export default function VocabularyPage() {
       }
 
       try {
-        await apiRequest(`/user-words/${progressId}/review`, {
+        const result = await apiRequest<ReviewUserWordResultDto>(`/user-words/${progressId}/review`, {
           method: 'POST',
           body: JSON.stringify(payload)
         });
 
-        return { queued: false };
+        return { queued: false, result };
       } catch (_error) {
         await enqueueOfflineEvent({
           type: 'WORD_REVIEW',
           clientEventId,
           payload: {
             progressId,
-            known
+            known,
+            rating
           },
           createdAt: new Date().toISOString()
         });
@@ -881,25 +1000,79 @@ export default function VocabularyPage() {
                             <p className="text-sm text-slate-700">{item.word.definition}</p>
                             <p className="mt-1 text-xs text-slate-500">例句：{item.word.exampleSentence}</p>
                             {!selectMode ? (
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  className="btn-primary"
-                                  onClick={() => reviewMutation.mutate({ progressId: item.id, known: true })}
-                                  disabled={reviewMutation.isPending}
-                                  data-testid={`review-known-${item.id}`}
-                                >
-                                  认识
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn-secondary"
-                                  onClick={() => reviewMutation.mutate({ progressId: item.id, known: false })}
-                                  disabled={reviewMutation.isPending}
-                                  data-testid={`review-unknown-${item.id}`}
-                                >
-                                  不认识
-                                </button>
+                              <div className="mt-3 space-y-2">
+                                <div className="flex flex-wrap gap-2">
+                                  {RATING_OPTIONS.map((option) => {
+                                    const preview = calculateNextPreview(
+                                      item.easeFactor,
+                                      item.intervalDays,
+                                      option.value
+                                    );
+                                    return (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-all ${option.btnClass}`}
+                                        onClick={() =>
+                                          reviewMutation.mutate({
+                                            progressId: item.id,
+                                            rating: option.value
+                                          })
+                                        }
+                                        onMouseEnter={() =>
+                                          setHoveredRating({ progressId: item.id, rating: option.value })
+                                        }
+                                        onMouseLeave={() => {
+                                          if (
+                                            hoveredRating?.progressId === item.id &&
+                                            hoveredRating?.rating === option.value
+                                          ) {
+                                            setHoveredRating(null);
+                                          }
+                                        }}
+                                        disabled={reviewMutation.isPending}
+                                        data-testid={`review-${option.value}-${item.id}`}
+                                        title={option.description}
+                                      >
+                                        <span className="flex items-center gap-1">
+                                          {option.shortLabel}
+                                          <span className="text-xs opacity-75">
+                                            ({formatIntervalLabel(preview.intervalDays)})
+                                          </span>
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                {hoveredRating?.progressId === item.id ? (
+                                  <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                    {(() => {
+                                      const option = RATING_OPTIONS.find(
+                                        (o) => o.value === hoveredRating.rating
+                                      );
+                                      const preview = calculateNextPreview(
+                                        item.easeFactor,
+                                        item.intervalDays,
+                                        hoveredRating.rating
+                                      );
+                                      return (
+                                        <>
+                                          <span className="font-medium text-slate-700">
+                                            {option?.label}：
+                                          </span>
+                                          {option?.description}
+                                          <span className="ml-2 text-slate-500">
+                                            下次复习：{preview.nextReviewAt}（{preview.intervalDays} 天后）
+                                          </span>
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                ) : (
+                                  <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-400">
+                                    鼠标悬停在按钮上可查看下次复习时间预估
+                                  </div>
+                                )}
                               </div>
                             ) : null}
 

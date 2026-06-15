@@ -84,20 +84,40 @@ export async function fetchTodayReviews(
   return body;
 }
 
+type ReviewRating = 'completely_forgot' | 'fuzzy' | 'recognized' | 'mastered';
+
+interface ReviewResult {
+  deduplicated: boolean;
+  progress: ApiUserWordProgress;
+  nextReviewPreview: {
+    intervalDays: number;
+    easeFactor: number;
+    nextReviewAt: string;
+  };
+}
+
 export async function reviewWord(
   request: APIRequestContext,
   token: string,
   progressId: string,
-  known: boolean,
+  knownOrRating: boolean | ReviewRating,
   clientEventId?: string
-): Promise<{ deduplicated: boolean; progress: ApiUserWordProgress }> {
-  const { status, body } = await apiPost<{ deduplicated: boolean; progress: ApiUserWordProgress }>(
+): Promise<ReviewResult> {
+  const payload: Record<string, unknown> = {
+    clientEventId
+  };
+
+  if (typeof knownOrRating === 'boolean') {
+    payload.known = knownOrRating;
+  } else {
+    payload.rating = knownOrRating;
+    payload.known = knownOrRating === 'recognized' || knownOrRating === 'mastered';
+  }
+
+  const { status, body } = await apiPost<ReviewResult>(
     request,
     `/user-words/${progressId}/review`,
-    {
-      known,
-      clientEventId
-    },
+    payload,
     token
   );
 

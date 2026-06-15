@@ -12,6 +12,13 @@ enum WordStatus {
   known
 }
 
+enum ReviewRating {
+  completely_forgot
+  fuzzy
+  recognized
+  mastered
+}
+
 enum GrammarLevel {
   basic
   intermediate
@@ -95,6 +102,7 @@ model UserWordReviewEvent {
   progressId        String           @map("progress_id")
   clientEventId     String           @map("client_event_id")
   known             Boolean
+  rating            ReviewRating?
   easeFactorAfter   Float            @map("ease_factor_after")
   intervalDaysAfter Int              @map("interval_days_after")
   reviewedAt        DateTime         @map("reviewed_at")

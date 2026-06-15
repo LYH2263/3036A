@@ -37,12 +37,16 @@ export class VocabularyPage {
     await this.page.locator('[data-testid^="word-pronounce-"]').first().click();
   }
 
+  async clickFirstReviewRating(rating: 'completely_forgot' | 'fuzzy' | 'recognized' | 'mastered') {
+    await this.page.locator(`[data-testid^="review-${rating}-"]`).first().click();
+  }
+
   async clickFirstReviewKnown() {
-    await this.page.locator('[data-testid^="review-known-"]').first().click();
+    await this.clickFirstReviewRating('recognized');
   }
 
   async clickFirstReviewUnknown() {
-    await this.page.locator('[data-testid^="review-unknown-"]').first().click();
+    await this.clickFirstReviewRating('fuzzy');
   }
 
   async getFirstReviewId(): Promise<string> {
