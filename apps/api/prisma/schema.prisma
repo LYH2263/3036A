@@ -134,19 +134,29 @@ model GrammarQuestion {
   @@map("grammar_questions")
 }
 
-model GrammarAttempt {
-  id             String       @id @default(uuid())
-  userId         String       @map("user_id")
-  lessonId       String       @map("lesson_id")
-  clientEventId  String       @map("client_event_id")
-  score          Int
-  totalQuestions Int          @map("total_questions")
-  correctCount   Int          @map("correct_count")
-  answers        Json
-  createdAt      DateTime     @default(now()) @map("created_at")
+enum TimeLimitMode {
+  per_question
+  per_quiz
+}
 
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lesson         GrammarLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+model GrammarAttempt {
+  id             String         @id @default(uuid())
+  userId         String         @map("user_id")
+  lessonId       String         @map("lesson_id")
+  clientEventId  String         @map("client_event_id")
+  score          Int
+  totalQuestions Int            @map("total_questions")
+  correctCount   Int            @map("correct_count")
+  answers        Json
+  isTimedMode    Boolean        @default(false) @map("is_timed_mode")
+  timeLimitMode  TimeLimitMode? @map("time_limit_mode")
+  timeLimitSec   Int?           @map("time_limit_sec")
+  timeTakenMs    Int?           @map("time_taken_ms")
+  timeoutCount   Int            @default(0) @map("timeout_count")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson         GrammarLesson  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   @@unique([userId, clientEventId])
   @@index([userId, createdAt])

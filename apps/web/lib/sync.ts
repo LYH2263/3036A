@@ -24,7 +24,11 @@ export async function syncOfflineQueue(): Promise<{ synced: number; failed: numb
           method: 'POST',
           body: JSON.stringify({
             answers: row.event.payload.answers,
-            clientEventId: row.event.clientEventId
+            clientEventId: row.event.clientEventId,
+            isTimedMode: row.event.payload.isTimedMode,
+            timeLimitMode: row.event.payload.timeLimitMode,
+            timeLimitSec: row.event.payload.timeLimitSec,
+            timeTakenMs: row.event.payload.timeTakenMs
           })
         });
       }

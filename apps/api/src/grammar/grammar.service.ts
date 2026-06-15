@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { GrammarLevel, Prisma } from '@prisma/client';
+import { GrammarLevel, Prisma, TimeLimitMode } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { formatStandardDateTime } from '../common/time.util';
@@ -9,7 +9,36 @@ import { formatStandardDateTime } from '../common/time.util';
 import { GetLessonsQueryDto } from './get-lessons-query.dto';
 import { GetMistakesQueryDto } from './get-mistakes-query.dto';
 import { RetryMistakesDto } from './retry-mistakes.dto';
-import { SubmitAttemptDto } from './submit-attempt.dto';
+import { SubmitAttemptDto, TimeLimitModeDto } from './submit-attempt.dto';
+
+export interface QuestionResultDetail {
+  questionId: string;
+  correct: boolean;
+  timedOut: boolean;
+  userAnswer: string;
+  correctAnswer: string;
+  explanation: string;
+  prompt: string;
+  type: 'single_choice' | 'fill_blank';
+  options: string[];
+  timeTakenMs?: number;
+}
+
+export interface SubmitAttemptResult {
+  deduplicated: boolean;
+  id: string;
+  lessonId: string;
+  score: number;
+  totalQuestions: number;
+  correctCount: number;
+  createdAt: string;
+  isTimedMode?: boolean;
+  timeLimitMode?: 'per_question' | 'per_quiz';
+  timeLimitSec?: number;
+  timeTakenMs?: number;
+  timeoutCount?: number;
+  details?: QuestionResultDetail[];
+}
 
 @Injectable()
 export class GrammarService {
@@ -63,7 +92,7 @@ export class GrammarService {
     };
   }
 
-  async submitAttempt(userId: string, lessonId: string, dto: SubmitAttemptDto) {
+  async submitAttempt(userId: string, lessonId: string, dto: SubmitAttemptDto): Promise<SubmitAttemptResult> {
     const lesson = await this.prisma.grammarLesson.findUnique({
       where: { id: lessonId },
       include: {
@@ -82,6 +111,8 @@ export class GrammarService {
     const totalQuestions = lesson.questions.length;
 
     let correctCount = 0;
+    let timeoutCount = 0;
+    const details: QuestionResultDetail[] = [];
     const wrongAnswers: Array<{
       questionId: string;
       userAnswer: string;
@@ -94,9 +125,16 @@ export class GrammarService {
         continue;
       }
 
+      const isTimedOut = answer.timedOut === true;
       const expected = question.answer.trim().toLowerCase();
       const actual = answer.answer.trim().toLowerCase();
-      if (expected === actual) {
+      const isCorrect = !isTimedOut && expected === actual;
+
+      if (isTimedOut) {
+        timeoutCount += 1;
+      }
+
+      if (isCorrect) {
         correctCount += 1;
       } else {
         wrongAnswers.push({
@@ -105,10 +143,33 @@ export class GrammarService {
           correctAnswer: question.answer
         });
       }
+
+      details.push({
+        questionId: question.id,
+        correct: isCorrect,
+        timedOut: isTimedOut,
+        userAnswer: answer.answer,
+        correctAnswer: question.answer,
+        explanation: question.explanation,
+        prompt: question.prompt,
+        type: question.type as 'single_choice' | 'fill_blank',
+        options: question.options as string[],
+        timeTakenMs: answer.timeTakenMs
+      });
     }
 
     const score = Math.round((correctCount / Math.max(1, totalQuestions)) * 100);
     const clientEventId = dto.clientEventId?.trim() || randomUUID();
+
+    const isTimedMode = dto.isTimedMode === true;
+    const timeLimitMode =
+      dto.timeLimitMode === TimeLimitModeDto.PER_QUESTION
+        ? TimeLimitMode.per_question
+        : dto.timeLimitMode === TimeLimitModeDto.PER_QUIZ
+          ? TimeLimitMode.per_quiz
+          : undefined;
+    const timeLimitSec = dto.timeLimitSec;
+    const timeTakenMs = dto.timeTakenMs;
 
     const duplicated = await this.prisma.grammarAttempt.findUnique({
       where: {
@@ -127,7 +188,13 @@ export class GrammarService {
         score: duplicated.score,
         totalQuestions: duplicated.totalQuestions,
         correctCount: duplicated.correctCount,
-        createdAt: formatStandardDateTime(duplicated.createdAt)
+        createdAt: formatStandardDateTime(duplicated.createdAt),
+        isTimedMode: duplicated.isTimedMode,
+        timeLimitMode: duplicated.timeLimitMode ?? undefined,
+        timeLimitSec: duplicated.timeLimitSec ?? undefined,
+        timeTakenMs: duplicated.timeTakenMs ?? undefined,
+        timeoutCount: duplicated.timeoutCount,
+        details
       };
     }
 
@@ -140,7 +207,12 @@ export class GrammarService {
           totalQuestions,
           correctCount,
           clientEventId,
-          answers: dto.answers as unknown as Prisma.InputJsonValue
+          answers: dto.answers as unknown as Prisma.InputJsonValue,
+          isTimedMode,
+          timeLimitMode,
+          timeLimitSec,
+          timeTakenMs,
+          timeoutCount
         }
       });
 
@@ -197,7 +269,13 @@ export class GrammarService {
       score: created!.score,
       totalQuestions: created!.totalQuestions,
       correctCount: created!.correctCount,
-      createdAt: formatStandardDateTime(created!.createdAt)
+      createdAt: formatStandardDateTime(created!.createdAt),
+      isTimedMode: created!.isTimedMode,
+      timeLimitMode: created!.timeLimitMode ?? undefined,
+      timeLimitSec: created!.timeLimitSec ?? undefined,
+      timeTakenMs: created!.timeTakenMs ?? undefined,
+      timeoutCount: created!.timeoutCount,
+      details
     };
   }
 

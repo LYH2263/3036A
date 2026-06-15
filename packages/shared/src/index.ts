@@ -1,5 +1,7 @@
 export type GrammarLevel = 'basic' | 'intermediate' | 'advanced';
 
+export type TimeLimitMode = 'per_question' | 'per_quiz';
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -83,6 +85,26 @@ export interface GrammarLessonDto {
   questions: GrammarQuestionDto[];
 }
 
+export interface GrammarAttemptAnswer {
+  questionId: string;
+  answer: string;
+  timedOut?: boolean;
+  timeTakenMs?: number;
+}
+
+export interface QuestionResultDetail {
+  questionId: string;
+  correct: boolean;
+  timedOut: boolean;
+  userAnswer: string;
+  correctAnswer: string;
+  explanation: string;
+  prompt: string;
+  type: 'single_choice' | 'fill_blank';
+  options: string[];
+  timeTakenMs?: number;
+}
+
 export interface GrammarAttemptDto {
   id: string;
   lessonId: string;
@@ -90,6 +112,12 @@ export interface GrammarAttemptDto {
   totalQuestions: number;
   correctCount: number;
   createdAt: string;
+  isTimedMode?: boolean;
+  timeLimitMode?: TimeLimitMode;
+  timeLimitSec?: number;
+  timeTakenMs?: number;
+  timeoutCount?: number;
+  details?: QuestionResultDetail[];
 }
 
 export interface GrammarMistakeDto {
@@ -162,7 +190,11 @@ export interface GrammarAttemptEvent {
   clientEventId: string;
   payload: {
     lessonId: string;
-    answers: Array<{ questionId: string; answer: string }>;
+    answers: GrammarAttemptAnswer[];
+    isTimedMode?: boolean;
+    timeLimitMode?: TimeLimitMode;
+    timeLimitSec?: number;
+    timeTakenMs?: number;
   };
   createdAt: string;
 }
