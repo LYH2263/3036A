@@ -40,6 +40,30 @@ import {
   type SpeechVoiceOption
 } from '../../lib/tts';
 
+function useHashFocus() {
+  const [highlightTarget, setHighlightTarget] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+
+    const timer = setTimeout(() => {
+      const element = document.getElementById(hash);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setHighlightTarget(hash);
+        setTimeout(() => setHighlightTarget(null), 2500);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  return highlightTarget;
+}
+
 const ACCENT_OPTIONS = [
   { value: 'auto', label: '系统默认' },
   { value: 'en-US', label: '美式英语（en-US）' },
@@ -81,6 +105,16 @@ export default function VocabularyPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash.slice(1);
+    if (hash === 'review-list') {
+      setActiveTab('review');
+    } else if (hash === 'library-list') {
+      setActiveTab('library');
+    }
+  }, []);
+
   const [searchHistory, setSearchHistory] = useState<SearchHistoryDto[]>([]);
   const [historyPanelOpen, setHistoryPanelOpen] = useState(false);
   const [activeHistoryIndex, setActiveHistoryIndex] = useState(-1);
@@ -88,6 +122,8 @@ export default function VocabularyPage() {
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchSectionRef = useRef<HTMLDivElement | null>(null);
+
+  const highlightTarget = useHashFocus();
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -771,7 +807,15 @@ export default function VocabularyPage() {
             ) : null}
 
             {activeTab === 'review' ? (
-              <section className="card space-y-4 bg-white/95" data-testid="vocabulary-review-section">
+              <section
+                id="review-list"
+                className={`card space-y-4 bg-white/95 transition-all duration-500 ${
+                  highlightTarget === 'review-list'
+                    ? 'ring-2 ring-brand-400 ring-offset-2 shadow-lg scale-[1.01]'
+                    : ''
+                }`}
+                data-testid="vocabulary-review-section"
+              >
                 <h2 className="section-title" data-testid="review-list-title">
                   <ListChecks className="h-4 w-4 text-brand-600" aria-hidden="true" />
                   今日待复习（{visibleReviews.length}）

@@ -14,4 +14,9 @@ export class StatsController {
   getOverview(@CurrentUser() user: CurrentUserPayload) {
     return this.statsService.getOverview(user.sub);
   }
+
+  @Get('reminders')
+  getReminders(@CurrentUser() user: CurrentUserPayload) {
+    return this.statsService.getReminders(user.sub);
+  }
 }

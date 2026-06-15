@@ -2,9 +2,157 @@ import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
 
+export interface ReminderItem {
+  type: 'overdue_review' | 'today_review' | 'mistake_retry' | 'unmet_goal';
+  title: string;
+  count: number;
+  urgency: number;
+  href: string;
+  description: string;
+}
+
+export interface RemindersResponse {
+  items: ReminderItem[];
+  allCleared: boolean;
+  totalCount: number;
+}
+
+const DEFAULT_DAILY_GOALS = {
+  reviewCount: 20,
+  grammarAttempts: 1
+};
+
 @Injectable()
 export class StatsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async getReminders(userId: string): Promise<RemindersResponse> {
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    const [
+      overdueReviewCount,
+      todayDueReviewCount,
+      todayCompletedReviews,
+      todayGrammarAttempts,
+      mistakeCount
+    ] = await Promise.all([
+      this.prisma.userWordProgress.count({
+        where: {
+          userId,
+          nextReviewAt: {
+            lt: todayStart
+          }
+        }
+      }),
+      this.prisma.userWordProgress.count({
+        where: {
+          userId,
+          nextReviewAt: {
+            gte: todayStart,
+            lt: tomorrowStart
+          }
+        }
+      }),
+      this.prisma.userWordReviewEvent.count({
+        where: {
+          userId,
+          reviewedAt: {
+            gte: todayStart,
+            lt: tomorrowStart
+          }
+        }
+      }),
+      this.prisma.grammarAttempt.count({
+        where: {
+          userId,
+          createdAt: {
+            gte: todayStart,
+            lt: tomorrowStart
+          }
+        }
+      }),
+      this.prisma.grammarMistake.count({
+        where: { userId }
+      })
+    ]);
+
+    const reviewRemaining = Math.max(
+      0,
+      DEFAULT_DAILY_GOALS.reviewCount - todayCompletedReviews
+    );
+    const grammarRemaining = Math.max(
+      0,
+      DEFAULT_DAILY_GOALS.grammarAttempts - todayGrammarAttempts
+    );
+    const hasUnmetGoal = reviewRemaining > 0 || grammarRemaining > 0;
+    const unmetGoalCount = (reviewRemaining > 0 ? 1 : 0) + (grammarRemaining > 0 ? 1 : 0);
+
+    const items: ReminderItem[] = [];
+
+    if (overdueReviewCount > 0) {
+      items.push({
+        type: 'overdue_review',
+        title: '已积压过期',
+        count: overdueReviewCount,
+        urgency: 1,
+        href: '/vocabulary#review-list',
+        description: '已过期的单词复习，请尽快处理'
+      });
+    }
+
+    if (mistakeCount > 0) {
+      items.push({
+        type: 'mistake_retry',
+        title: '错题待重练',
+        count: mistakeCount,
+        urgency: 2,
+        href: '/grammar/mistakes#mistakes-list',
+        description: '有待重练的语法错题'
+      });
+    }
+
+    if (todayDueReviewCount > 0) {
+      items.push({
+        type: 'today_review',
+        title: '今日待复习',
+        count: todayDueReviewCount,
+        urgency: 3,
+        href: '/vocabulary#review-list',
+        description: '今日到期的单词复习'
+      });
+    }
+
+    if (hasUnmetGoal) {
+      const goalDescriptions: string[] = [];
+      if (reviewRemaining > 0) {
+        goalDescriptions.push(`复习还需 ${reviewRemaining} 个`);
+      }
+      if (grammarRemaining > 0) {
+        goalDescriptions.push(`语法还需 ${grammarRemaining} 次`);
+      }
+      items.push({
+        type: 'unmet_goal',
+        title: '今日目标未达成',
+        count: unmetGoalCount,
+        urgency: 4,
+        href: '/progress',
+        description: goalDescriptions.join('，')
+      });
+    }
+
+    items.sort((a, b) => a.urgency - b.urgency);
+
+    const totalCount = items.reduce((sum, item) => sum + item.count, 0);
+
+    return {
+      items,
+      allCleared: items.length === 0,
+      totalCount
+    };
+  }
 
   async getOverview(userId: string) {
     const now = new Date();

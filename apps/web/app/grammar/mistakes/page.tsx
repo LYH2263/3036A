@@ -11,7 +11,7 @@ import {
   RotateCcw,
   XCircle
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { GrammarLevel } from '@lexigram/shared';
 
@@ -20,6 +20,30 @@ import { SyncButton } from '../../../components/sync-button';
 import { apiRequest } from '../../../lib/api';
 import { useRequireAuth } from '../../../lib/auth';
 import { enqueueOfflineEvent } from '../../../lib/offline-queue';
+
+function useHashFocus() {
+  const [highlightTarget, setHighlightTarget] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+
+    const timer = setTimeout(() => {
+      const element = document.getElementById(hash);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setHighlightTarget(hash);
+        setTimeout(() => setHighlightTarget(null), 2500);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  return highlightTarget;
+}
 
 interface GrammarMistakeDto {
   id: string;
@@ -78,6 +102,8 @@ export default function GrammarMistakesPage() {
   const [retryAnswers, setRetryAnswers] = useState<Record<string, string>>({});
   const [retryResult, setRetryResult] = useState<RetryResult | null>(null);
   const [submitMessage, setSubmitMessage] = useState('');
+
+  const highlightTarget = useHashFocus();
 
   const mistakesQuery = useQuery({
     queryKey: ['grammar-mistakes', level, lessonId, sortBy],
@@ -496,7 +522,15 @@ export default function GrammarMistakesPage() {
               </div>
             </section>
 
-            <section className="space-y-3" data-testid="mistakes-list">
+            <section
+              id="mistakes-list"
+              className={`space-y-3 transition-all duration-500 ${
+                highlightTarget === 'mistakes-list'
+                  ? 'ring-2 ring-amber-400 ring-offset-2 rounded-[var(--radius-control)] p-2 -m-2'
+                  : ''
+              }`}
+              data-testid="mistakes-list"
+            >
               {mistakes.map((mistake) => (
                 <div
                   key={mistake.id}
