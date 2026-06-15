@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { useEffect, useMemo } from 'react';
 
 import { AppShell } from '../../components/app-shell';
+import { OfflineQueuePanel } from '../../components/offline-queue-panel';
 import { SyncButton } from '../../components/sync-button';
 import { apiRequest } from '../../lib/api';
 import { useRequireAuth } from '../../lib/auth';
@@ -158,6 +159,12 @@ export default function DashboardPage() {
     <AppShell title="学习面板">
       <div className="space-y-5" data-testid="dashboard-page">
         <SyncButton
+          onSynced={() => {
+            invalidateAll();
+          }}
+        />
+
+        <OfflineQueuePanel
           onSynced={() => {
             invalidateAll();
           }}
