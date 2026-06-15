@@ -7,7 +7,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { formatStandardDateTime } from '../common/time.util';
 
 import { CreateUserWordDto } from './create-user-word.dto';
+import { GetUserWordsQueryDto } from './get-user-words-query.dto';
 import { ReviewUserWordDto } from './review-user-word.dto';
+
+type ProgressWithWordAndGroups = Prisma.UserWordProgressGetPayload<{
+  include: {
+    wordEntry: true;
+    groups: true;
+  };
+}>;
 
 @Injectable()
 export class UserWordsService {
@@ -31,7 +39,8 @@ export class UserWordsService {
         }
       },
       include: {
-        wordEntry: true
+        wordEntry: true,
+        groups: true
       }
     });
 
@@ -49,25 +58,31 @@ export class UserWordsService {
         nextReviewAt: new Date()
       },
       include: {
-        wordEntry: true
+        wordEntry: true,
+        groups: true
       }
     });
 
     return this.mapProgress(progress);
   }
 
-  async getTodayReviews(userId: string) {
+  async getTodayReviews(userId: string, query: GetUserWordsQueryDto = {}) {
     const now = new Date();
 
+    const where: Prisma.UserWordProgressWhereInput = {
+      userId,
+      nextReviewAt: {
+        lte: now
+      }
+    };
+
+    this.applyGroupFilter(where, userId, query);
+
     const items = await this.prisma.userWordProgress.findMany({
-      where: {
-        userId,
-        nextReviewAt: {
-          lte: now
-        }
-      },
+      where,
       include: {
-        wordEntry: true
+        wordEntry: true,
+        groups: true
       },
       orderBy: {
         nextReviewAt: 'asc'
@@ -77,11 +92,52 @@ export class UserWordsService {
     return items.map((item) => this.mapProgress(item));
   }
 
+  async getUserWords(userId: string, query: GetUserWordsQueryDto = {}) {
+    const where: Prisma.UserWordProgressWhereInput = {
+      userId
+    };
+
+    this.applyGroupFilter(where, userId, query);
+
+    const items = await this.prisma.userWordProgress.findMany({
+      where,
+      include: {
+        wordEntry: true,
+        groups: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    return items.map((item) => this.mapProgress(item));
+  }
+
+  private applyGroupFilter(
+    where: Prisma.UserWordProgressWhereInput,
+    userId: string,
+    query: GetUserWordsQueryDto
+  ) {
+    if (query.groupId) {
+      where.groups = {
+        some: {
+          id: query.groupId,
+          userId
+        }
+      };
+    } else if (query.ungroupedOnly) {
+      where.groups = {
+        none: {}
+      };
+    }
+  }
+
   async review(userId: string, progressId: string, dto: ReviewUserWordDto) {
     const progress = await this.prisma.userWordProgress.findUnique({
       where: { id: progressId },
       include: {
-        wordEntry: true
+        wordEntry: true,
+        groups: true
       }
     });
 
@@ -106,7 +162,7 @@ export class UserWordsService {
     if (existedEvent) {
       const latest = await this.prisma.userWordProgress.findUnique({
         where: { id: progressId },
-        include: { wordEntry: true }
+        include: { wordEntry: true, groups: true }
       });
 
       if (!latest) {
@@ -137,7 +193,8 @@ export class UserWordsService {
           lastReviewedAt: now
         },
         include: {
-          wordEntry: true
+          wordEntry: true,
+          groups: true
         }
       });
 
@@ -173,13 +230,7 @@ export class UserWordsService {
     return { easeFactor: nextEase, intervalDays: 1 };
   }
 
-  private mapProgress(
-    item: Prisma.UserWordProgressGetPayload<{
-      include: {
-        wordEntry: true;
-      };
-    }>
-  ) {
+  private mapProgress(item: ProgressWithWordAndGroups) {
     return {
       id: item.id,
       wordEntryId: item.wordEntryId,
@@ -194,7 +245,14 @@ export class UserWordsService {
         definition: item.wordEntry.definition,
         exampleSentence: item.wordEntry.exampleSentence,
         phonetic: item.wordEntry.phonetic
-      }
+      },
+      groups: item.groups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        color: g.color,
+        createdAt: formatStandardDateTime(g.createdAt),
+        updatedAt: formatStandardDateTime(g.updatedAt)
+      }))
     };
   }
 }

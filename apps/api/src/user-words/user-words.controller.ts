@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '../common/current-user.decorator';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 
 import { CreateUserWordDto } from './create-user-word.dto';
+import { GetUserWordsQueryDto } from './get-user-words-query.dto';
 import { ReviewUserWordDto } from './review-user-word.dto';
 import { UserWordsService } from './user-words.service';
 
@@ -17,9 +18,20 @@ export class UserWordsController {
     return this.userWordsService.addUserWord(user.sub, dto);
   }
 
+  @Get()
+  getUserWords(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() query: GetUserWordsQueryDto
+  ) {
+    return this.userWordsService.getUserWords(user.sub, query);
+  }
+
   @Get('reviews/today')
-  getTodayReviews(@CurrentUser() user: CurrentUserPayload) {
-    return this.userWordsService.getTodayReviews(user.sub);
+  getTodayReviews(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() query: GetUserWordsQueryDto
+  ) {
+    return this.userWordsService.getTodayReviews(user.sub, query);
   }
 
   @Post(':id/review')

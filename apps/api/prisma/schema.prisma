@@ -31,6 +31,7 @@ model User {
   wordProgresses     UserWordProgress[]
   grammarAttempts    GrammarAttempt[]
   wordReviewEvents   UserWordReviewEvent[]
+  wordGroups         WordGroup[]
 
   @@map("users")
 }
@@ -62,10 +63,27 @@ model UserWordProgress {
   user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   wordEntry      WordEntry             @relation(fields: [wordEntryId], references: [id], onDelete: Cascade)
   reviewEvents   UserWordReviewEvent[]
+  groups         WordGroup[]           @relation("WordGroupProgresses")
 
   @@unique([userId, wordEntryId])
   @@index([userId, nextReviewAt])
   @@map("user_word_progresses")
+}
+
+model WordGroup {
+  id          String             @id @default(uuid())
+  userId      String             @map("user_id")
+  name        String
+  color       String             @default("#6366f1")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  progresses  UserWordProgress[] @relation("WordGroupProgresses")
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("word_groups")
 }
 
 model UserWordReviewEvent {

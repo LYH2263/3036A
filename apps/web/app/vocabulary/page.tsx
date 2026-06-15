@@ -1,18 +1,25 @@
 'use client';
 
-import type { UserWordProgressDto, WordEntryDto } from '@lexigram/shared';
+import type { UserWordProgressDto, WordEntryDto, WordGroupDto } from '@lexigram/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   CheckCircle2,
+  CheckSquare,
   CloudOff,
+  FolderTree,
   ListChecks,
   Search,
-  Volume2
+  Square,
+  Tag,
+  Volume2,
+  X
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { AppShell } from '../../components/app-shell';
+import { AssignGroupsDialog } from '../../components/assign-groups-dialog';
+import { GroupSidebar, type GroupFilter } from '../../components/group-sidebar';
 import { SyncButton } from '../../components/sync-button';
 import { apiRequest, ApiError } from '../../lib/api';
 import { useRequireAuth } from '../../lib/auth';
@@ -35,6 +42,18 @@ const ACCENT_OPTIONS = [
 
 const AUTO_VOICE_VALUE = '__auto__';
 
+type TabType = 'review' | 'library';
+
+function buildQueryParams(filter: GroupFilter) {
+  const params = new URLSearchParams();
+  if (filter.type === 'group') {
+    params.set('groupId', filter.groupId);
+  } else if (filter.type === 'ungrouped') {
+    params.set('ungroupedOnly', 'true');
+  }
+  return params.toString();
+}
+
 export default function VocabularyPage() {
   const { ready } = useRequireAuth();
   const queryClient = useQueryClient();
@@ -45,6 +64,12 @@ export default function VocabularyPage() {
   const [voiceOptions, setVoiceOptions] = useState<SpeechVoiceOption[]>([]);
   const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>(AUTO_VOICE_VALUE);
   const [speechSupported, setSpeechSupported] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<TabType>('review');
+  const [filter, setFilter] = useState<GroupFilter>({ type: 'all' });
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -81,6 +106,13 @@ export default function VocabularyPage() {
     return;
   }, []);
 
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setSelectMode(false);
+  }, [filter, activeTab]);
+
+  const queryParams = useMemo(() => buildQueryParams(filter), [filter]);
+
   const wordsQuery = useQuery({
     queryKey: ['words-search', query],
     queryFn: () => apiRequest<WordEntryDto[]>(`/words?q=${encodeURIComponent(query)}`),
@@ -88,10 +120,33 @@ export default function VocabularyPage() {
   });
 
   const reviewQuery = useQuery({
-    queryKey: ['today-reviews'],
-    queryFn: () => apiRequest<UserWordProgressDto[]>('/user-words/reviews/today'),
+    queryKey: ['today-reviews', queryParams],
+    queryFn: () =>
+      apiRequest<UserWordProgressDto[]>(
+        `/user-words/reviews/today${queryParams ? `?${queryParams}` : ''}`
+      ),
     enabled: ready
   });
+
+  const libraryQuery = useQuery({
+    queryKey: ['user-words', queryParams],
+    queryFn: () =>
+      apiRequest<UserWordProgressDto[]>(
+        `/user-words${queryParams ? `?${queryParams}` : ''}`
+      ),
+    enabled: ready
+  });
+
+  const groupsQuery = useQuery({
+    queryKey: ['word-groups'],
+    queryFn: () => apiRequest<WordGroupDto[]>('/word-groups'),
+    enabled: ready
+  });
+
+  const ungroupedCount = useMemo(() => {
+    const all = libraryQuery.data ?? [];
+    return all.filter((w) => w.groups.length === 0).length;
+  }, [libraryQuery.data]);
 
   const addWordMutation = useMutation({
     mutationFn: (wordEntryId: string) =>
@@ -102,6 +157,7 @@ export default function VocabularyPage() {
     onSuccess: () => {
       setNotice('已加入生词本');
       void queryClient.invalidateQueries({ queryKey: ['today-reviews'] });
+      void queryClient.invalidateQueries({ queryKey: ['user-words'] });
       void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
     },
     onError: (error) => {
@@ -162,6 +218,7 @@ export default function VocabularyPage() {
       setDismissedReviewIds((prev) => [...prev, variables.progressId]);
       setNotice(result.queued ? '当前离线，复习记录已加入待同步队列' : '复习结果已提交');
       void queryClient.invalidateQueries({ queryKey: ['today-reviews'] });
+      void queryClient.invalidateQueries({ queryKey: ['user-words'] });
       void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
     }
   });
@@ -170,6 +227,8 @@ export default function VocabularyPage() {
     () => (reviewQuery.data ?? []).filter((item) => !dismissedReviewIds.includes(item.id)),
     [reviewQuery.data, dismissedReviewIds]
   );
+
+  const libraryItems = useMemo(() => libraryQuery.data ?? [], [libraryQuery.data]);
 
   const filteredVoiceOptions = useMemo(() => {
     if (accent === 'auto') {
@@ -195,6 +254,49 @@ export default function VocabularyPage() {
     }
   }, [filteredVoiceOptions, selectedVoiceURI]);
 
+  const activeItems = activeTab === 'review' ? visibleReviews : libraryItems;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === activeItems.length && activeItems.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(activeItems.map((i) => i.id)));
+    }
+  };
+
+  const openAssignDialog = () => {
+    if (selectedIds.size === 0) {
+      setNotice('请先选择要归类的单词');
+      return;
+    }
+    setAssignDialogOpen(true);
+  };
+
+  const computeCommonGroupIds = () => {
+    const selected = activeItems.filter((i) => selectedIds.has(i.id));
+    if (selected.length === 0) return [];
+    const first = new Set(selected[0].groups.map((g) => g.id));
+    for (let i = 1; i < selected.length; i++) {
+      const cur = new Set(selected[i].groups.map((g) => g.id));
+      for (const gid of Array.from(first)) {
+        if (!cur.has(gid)) first.delete(gid);
+      }
+    }
+    return Array.from(first);
+  };
+
   const noticeTone =
     notice.includes('离线')
       ? 'status-warning'
@@ -215,7 +317,9 @@ export default function VocabularyPage() {
           onSynced={() => {
             setDismissedReviewIds([]);
             void queryClient.invalidateQueries({ queryKey: ['today-reviews'] });
+            void queryClient.invalidateQueries({ queryKey: ['user-words'] });
             void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
+            void queryClient.invalidateQueries({ queryKey: ['word-groups'] });
           }}
         />
 
@@ -226,171 +330,428 @@ export default function VocabularyPage() {
           </div>
         ) : null}
 
-        <section className="card space-y-4 bg-white/95" data-testid="vocabulary-search-section">
-          <h2 className="section-title">
-            <Search className="h-4 w-4 text-brand-600" aria-hidden="true" />
-            单词查询
-          </h2>
-          <input
-            className="input-control"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="请输入要查询的英文单词"
-            data-testid="word-search-input"
-          />
-
-          <div className="grid gap-3 sm:grid-cols-2" data-testid="speech-controls">
-            <label className="space-y-1">
-              <span className="text-xs font-medium text-slate-600">发音口音</span>
-              <select
-                className="input-control"
-                value={accent}
-                onChange={(event) => setAccent(event.target.value as (typeof ACCENT_OPTIONS)[number]['value'])}
-                data-testid="speech-accent-select"
-              >
-                {ACCENT_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1">
-              <span className="text-xs font-medium text-slate-600">发音人</span>
-              <select
-                className="input-control"
-                value={selectedVoiceURI}
-                onChange={(event) => setSelectedVoiceURI(event.target.value)}
-                data-testid="speech-voice-select"
-                disabled={!speechSupported}
-              >
-                <option value={AUTO_VOICE_VALUE}>系统自动匹配</option>
-                {filteredVoiceOptions.map((voice) => (
-                  <option key={voice.voiceURI} value={voice.voiceURI}>
-                    {voice.name}（{voice.lang}）
-                  </option>
-                ))}
-              </select>
-            </label>
+        <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
+          <div className="space-y-5">
+            <GroupSidebar
+              filter={filter}
+              onFilterChange={setFilter}
+              totalCount={libraryItems.length}
+              ungroupedCount={ungroupedCount}
+              onNotice={setNotice}
+            />
           </div>
-          {!speechSupported ? (
-            <p className="status-neutral" data-testid="speech-support-hint">
-              当前浏览器不支持语音播放，可更换到最新版 Chrome 或 Edge 体验发音。
-            </p>
-          ) : (
-            <p className="text-xs text-slate-500" data-testid="speech-voice-count">
-              已检测到 {filteredVoiceOptions.length} 个可用发音人，可切换试听不同口音。
-            </p>
-          )}
 
-          {wordsQuery.isLoading ? (
-            <p className="text-sm text-slate-500" data-testid="word-search-loading">
-              搜索中...
-            </p>
-          ) : null}
-          {wordsQuery.data?.length === 0 && query.trim() ? (
-            <p className="text-sm text-slate-500" data-testid="word-search-empty">
-              未匹配到词条
-            </p>
-          ) : null}
+          <div className="space-y-5">
+            <section className="card space-y-4 bg-white/95" data-testid="vocabulary-search-section">
+              <h2 className="section-title">
+                <Search className="h-4 w-4 text-brand-600" aria-hidden="true" />
+                单词查询
+              </h2>
+              <input
+                className="input-control"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="请输入要查询的英文单词"
+                data-testid="word-search-input"
+              />
 
-          <div className="grid gap-3" data-testid="word-search-results">
-            {wordsQuery.data?.map((word) => (
-              <article
-                key={word.id}
-                className="card card-hover border-slate-200/90 p-3"
-                data-testid={`word-card-${word.id}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-base font-semibold">{word.word}</h3>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => {
-                      const spoken = speakWord(word.word, {
-                        lang: accent === 'auto' ? undefined : accent,
-                        voiceURI:
-                          selectedVoiceURI === AUTO_VOICE_VALUE ? undefined : selectedVoiceURI
-                      });
-
-                      if (!spoken) {
-                        setNotice('当前浏览器不支持语音播放，请尝试更换浏览器');
-                      }
-                    }}
-                    data-testid={`word-pronounce-${word.id}`}
+              <div className="grid gap-3 sm:grid-cols-2" data-testid="speech-controls">
+                <label className="space-y-1">
+                  <span className="text-xs font-medium text-slate-600">发音口音</span>
+                  <select
+                    className="input-control"
+                    value={accent}
+                    onChange={(event) => setAccent(event.target.value as (typeof ACCENT_OPTIONS)[number]['value'])}
+                    data-testid="speech-accent-select"
                   >
-                    <Volume2 className="h-4 w-4" aria-hidden="true" />
-                    发音
-                  </button>
-                </div>
-                <p className="mt-1 text-sm text-slate-600">{word.phonetic || '暂无音标'}</p>
-                <p className="mt-2 text-sm text-slate-800">{word.definition}</p>
-                <p className="mt-1 text-sm text-slate-500">例句：{word.exampleSentence}</p>
+                    {ACCENT_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-medium text-slate-600">发音人</span>
+                  <select
+                    className="input-control"
+                    value={selectedVoiceURI}
+                    onChange={(event) => setSelectedVoiceURI(event.target.value)}
+                    data-testid="speech-voice-select"
+                    disabled={!speechSupported}
+                  >
+                    <option value={AUTO_VOICE_VALUE}>系统自动匹配</option>
+                    {filteredVoiceOptions.map((voice) => (
+                      <option key={voice.voiceURI} value={voice.voiceURI}>
+                        {voice.name}（{voice.lang}）
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {!speechSupported ? (
+                <p className="status-neutral" data-testid="speech-support-hint">
+                  当前浏览器不支持语音播放，可更换到最新版 Chrome 或 Edge 体验发音。
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500" data-testid="speech-voice-count">
+                  已检测到 {filteredVoiceOptions.length} 个可用发音人，可切换试听不同口音。
+                </p>
+              )}
+
+              {wordsQuery.isLoading ? (
+                <p className="text-sm text-slate-500" data-testid="word-search-loading">
+                  搜索中...
+                </p>
+              ) : null}
+              {wordsQuery.data?.length === 0 && query.trim() ? (
+                <p className="text-sm text-slate-500" data-testid="word-search-empty">
+                  未匹配到词条
+                </p>
+              ) : null}
+
+              <div className="grid gap-3" data-testid="word-search-results">
+                {wordsQuery.data?.map((word) => (
+                  <article
+                    key={word.id}
+                    className="card card-hover border-slate-200/90 p-3"
+                    data-testid={`word-card-${word.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-base font-semibold">{word.word}</h3>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          const spoken = speakWord(word.word, {
+                            lang: accent === 'auto' ? undefined : accent,
+                            voiceURI:
+                              selectedVoiceURI === AUTO_VOICE_VALUE ? undefined : selectedVoiceURI
+                          });
+
+                          if (!spoken) {
+                            setNotice('当前浏览器不支持语音播放，请尝试更换浏览器');
+                          }
+                        }}
+                        data-testid={`word-pronounce-${word.id}`}
+                      >
+                        <Volume2 className="h-4 w-4" aria-hidden="true" />
+                        发音
+                      </button>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">{word.phonetic || '暂无音标'}</p>
+                    <p className="mt-2 text-sm text-slate-800">{word.definition}</p>
+                    <p className="mt-1 text-sm text-slate-500">例句：{word.exampleSentence}</p>
+                    <button
+                      type="button"
+                      className="btn-primary mt-3"
+                      onClick={() => addWordMutation.mutate(word.id)}
+                      disabled={addWordMutation.isPending}
+                      data-testid={`word-add-${word.id}`}
+                    >
+                      加入生词本
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <div className="flex items-center justify-between">
+              <div className="flex gap-2">
                 <button
                   type="button"
-                  className="btn-primary mt-3"
-                  onClick={() => addWordMutation.mutate(word.id)}
-                  disabled={addWordMutation.isPending}
-                  data-testid={`word-add-${word.id}`}
+                  className={`nav-chip ${activeTab === 'review' ? 'nav-chip-active' : ''}`}
+                  onClick={() => setActiveTab('review')}
+                  data-testid="tab-review"
                 >
-                  加入生词本
+                  <ListChecks className="h-4 w-4" aria-hidden="true" />
+                  今日待复习 ({visibleReviews.length})
                 </button>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="card space-y-4 bg-white/95" data-testid="vocabulary-review-section">
-          <h2 className="section-title" data-testid="review-list-title">
-            <ListChecks className="h-4 w-4 text-brand-600" aria-hidden="true" />
-            今日待复习（{visibleReviews.length}）
-          </h2>
-          {reviewQuery.isLoading ? (
-            <p className="text-sm text-slate-500" data-testid="review-loading">
-              加载复习列表...
-            </p>
-          ) : null}
-          {visibleReviews.length === 0 && !reviewQuery.isLoading ? (
-            <p className="text-sm text-slate-500" data-testid="review-empty">
-              今日没有待复习项，先添加几个单词吧。
-            </p>
-          ) : null}
-
-          <div className="space-y-3" data-testid="review-list">
-            {visibleReviews.map((item) => (
-              <div
-                key={item.id}
-                className="rounded-[var(--radius-control)] border border-slate-200 bg-slate-50/60 p-3"
-                data-testid={`review-item-${item.id}`}
-              >
-                <p className="text-base font-semibold">{item.word.word}</p>
-                <p className="text-sm text-slate-700">{item.word.definition}</p>
-                <p className="mt-1 text-xs text-slate-500">例句：{item.word.exampleSentence}</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={() => reviewMutation.mutate({ progressId: item.id, known: true })}
-                    disabled={reviewMutation.isPending}
-                    data-testid={`review-known-${item.id}`}
-                  >
-                    认识
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => reviewMutation.mutate({ progressId: item.id, known: false })}
-                    disabled={reviewMutation.isPending}
-                    data-testid={`review-unknown-${item.id}`}
-                  >
-                    不认识
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className={`nav-chip ${activeTab === 'library' ? 'nav-chip-active' : ''}`}
+                  onClick={() => setActiveTab('library')}
+                  data-testid="tab-library"
+                >
+                  <FolderTree className="h-4 w-4" aria-hidden="true" />
+                  生词本 ({libraryItems.length})
+                </button>
               </div>
-            ))}
+              {activeItems.length > 0 ? (
+                <div className="flex items-center gap-2">
+                  {selectMode ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-secondary h-9 px-3 text-xs"
+                        onClick={toggleSelectAll}
+                        data-testid="select-all-btn"
+                      >
+                        {selectedIds.size === activeItems.length ? (
+                          <>
+                            <CheckSquare className="h-3.5 w-3.5" aria-hidden="true" />
+                            取消全选
+                          </>
+                        ) : (
+                          <>
+                            <Square className="h-3.5 w-3.5" aria-hidden="true" />
+                            全选
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-primary h-9 px-3 text-xs"
+                        onClick={openAssignDialog}
+                        disabled={selectedIds.size === 0}
+                        data-testid="assign-groups-btn"
+                      >
+                        <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+                        归类分组 {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary h-9 px-3 text-xs"
+                        onClick={() => {
+                          setSelectMode(false);
+                          setSelectedIds(new Set());
+                        }}
+                        data-testid="exit-select-mode-btn"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-secondary h-9 px-3 text-xs"
+                      onClick={() => setSelectMode(true)}
+                      data-testid="enter-select-mode-btn"
+                    >
+                      <CheckSquare className="h-3.5 w-3.5" aria-hidden="true" />
+                      多选归类
+                    </button>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {filter.type !== 'all' ? (
+              <div className="flex items-center gap-2 rounded-[var(--radius-control)] border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-700">
+                <Tag className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>
+                  当前筛选：
+                  {filter.type === 'ungrouped'
+                    ? '未分组单词'
+                    : groupsQuery.data?.find((g) => g.id === filter.groupId)?.name ?? '...'}
+                </span>
+                <button
+                  type="button"
+                  className="ml-auto rounded-md p-1 text-brand-600 hover:bg-brand-100"
+                  onClick={() => setFilter({ type: 'all' })}
+                  data-testid="clear-filter-btn"
+                  aria-label="清除筛选"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            ) : null}
+
+            {activeTab === 'review' ? (
+              <section className="card space-y-4 bg-white/95" data-testid="vocabulary-review-section">
+                <h2 className="section-title" data-testid="review-list-title">
+                  <ListChecks className="h-4 w-4 text-brand-600" aria-hidden="true" />
+                  今日待复习（{visibleReviews.length}）
+                </h2>
+                {reviewQuery.isLoading ? (
+                  <p className="text-sm text-slate-500" data-testid="review-loading">
+                    加载复习列表...
+                  </p>
+                ) : null}
+                {visibleReviews.length === 0 && !reviewQuery.isLoading ? (
+                  <p className="text-sm text-slate-500" data-testid="review-empty">
+                    {filter.type !== 'all' ? '当前筛选条件下没有待复习项。' : '今日没有待复习项，先添加几个单词吧。'}
+                  </p>
+                ) : null}
+
+                <div className="space-y-3" data-testid="review-list">
+                  {visibleReviews.map((item) => {
+                    const checked = selectedIds.has(item.id);
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-[var(--radius-control)] border p-3 transition-colors ${
+                          selectMode && checked
+                            ? 'border-brand-300 bg-brand-50/60'
+                            : 'border-slate-200 bg-slate-50/60'
+                        }`}
+                        data-testid={`review-item-${item.id}`}
+                      >
+                        <div className="flex items-start gap-2">
+                          {selectMode ? (
+                            <button
+                              type="button"
+                              className="mt-0.5 shrink-0 text-slate-600 hover:text-brand-700"
+                              onClick={() => toggleSelect(item.id)}
+                              data-testid={`review-select-${item.id}`}
+                              aria-label={checked ? '取消选中' : '选中'}
+                            >
+                              {checked ? (
+                                <CheckSquare className="h-5 w-5 text-brand-600" />
+                              ) : (
+                                <Square className="h-5 w-5" />
+                              )}
+                            </button>
+                          ) : null}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-base font-semibold">{item.word.word}</p>
+                              {item.groups.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {item.groups.map((g) => (
+                                    <span
+                                      key={g.id}
+                                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                                      style={{ backgroundColor: g.color }}
+                                      data-testid={`review-tag-${item.id}-${g.id}`}
+                                    >
+                                      {g.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                            <p className="text-sm text-slate-700">{item.word.definition}</p>
+                            <p className="mt-1 text-xs text-slate-500">例句：{item.word.exampleSentence}</p>
+                            {!selectMode ? (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  className="btn-primary"
+                                  onClick={() => reviewMutation.mutate({ progressId: item.id, known: true })}
+                                  disabled={reviewMutation.isPending}
+                                  data-testid={`review-known-${item.id}`}
+                                >
+                                  认识
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  onClick={() => reviewMutation.mutate({ progressId: item.id, known: false })}
+                                  disabled={reviewMutation.isPending}
+                                  data-testid={`review-unknown-${item.id}`}
+                                >
+                                  不认识
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : (
+              <section className="card space-y-4 bg-white/95" data-testid="vocabulary-library-section">
+                <h2 className="section-title" data-testid="library-list-title">
+                  <FolderTree className="h-4 w-4 text-brand-600" aria-hidden="true" />
+                  生词本（{libraryItems.length}）
+                </h2>
+                {libraryQuery.isLoading ? (
+                  <p className="text-sm text-slate-500" data-testid="library-loading">
+                    加载生词本...
+                  </p>
+                ) : null}
+                {libraryItems.length === 0 && !libraryQuery.isLoading ? (
+                  <p className="text-sm text-slate-500" data-testid="library-empty">
+                    {filter.type !== 'all' ? '当前筛选条件下没有单词。' : '生词本是空的，先去搜索并添加单词吧。'}
+                  </p>
+                ) : null}
+
+                <div className="space-y-3" data-testid="library-list">
+                  {libraryItems.map((item) => {
+                    const checked = selectedIds.has(item.id);
+                    const statusBadge =
+                      item.status === 'known'
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-amber-100 text-amber-700';
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-[var(--radius-control)] border p-3 transition-colors ${
+                          selectMode && checked
+                            ? 'border-brand-300 bg-brand-50/60'
+                            : 'border-slate-200 bg-slate-50/60'
+                        }`}
+                        data-testid={`library-item-${item.id}`}
+                      >
+                        <div className="flex items-start gap-2">
+                          {selectMode ? (
+                            <button
+                              type="button"
+                              className="mt-0.5 shrink-0 text-slate-600 hover:text-brand-700"
+                              onClick={() => toggleSelect(item.id)}
+                              data-testid={`library-select-${item.id}`}
+                              aria-label={checked ? '取消选中' : '选中'}
+                            >
+                              {checked ? (
+                                <CheckSquare className="h-5 w-5 text-brand-600" />
+                              ) : (
+                                <Square className="h-5 w-5" />
+                              )}
+                            </button>
+                          ) : null}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-base font-semibold">{item.word.word}</p>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadge}`}>
+                                {item.status === 'known' ? '已掌握' : '学习中'}
+                              </span>
+                              {item.groups.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {item.groups.map((g) => (
+                                    <span
+                                      key={g.id}
+                                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                                      style={{ backgroundColor: g.color }}
+                                      data-testid={`library-tag-${item.id}-${g.id}`}
+                                    >
+                                      {g.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                            <p className="mt-1 text-sm text-slate-600">{item.word.phonetic || '暂无音标'}</p>
+                            <p className="text-sm text-slate-700">{item.word.definition}</p>
+                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                              <span>下次复习：{new Date(item.nextReviewAt).toLocaleDateString('zh-CN')}</span>
+                              {item.lastReviewedAt ? (
+                                <span>上次复习：{new Date(item.lastReviewedAt).toLocaleDateString('zh-CN')}</span>
+                              ) : null}
+                              <span>难度系数：{item.easeFactor.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
           </div>
-        </section>
+        </div>
       </div>
+
+      <AssignGroupsDialog
+        open={assignDialogOpen}
+        onClose={() => setAssignDialogOpen(false)}
+        progressIds={Array.from(selectedIds)}
+        currentGroupIds={computeCommonGroupIds()}
+        onNotice={setNotice}
+      />
     </AppShell>
   );
 }

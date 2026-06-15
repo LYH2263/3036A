@@ -19,6 +19,23 @@ export interface WordEntryDto {
   phonetic: string;
 }
 
+export interface WordGroupDto {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+  wordCount: number;
+}
+
+export interface WordGroupDetailDto {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UserWordProgressDto {
   id: string;
   wordEntryId: string;
@@ -28,6 +45,25 @@ export interface UserWordProgressDto {
   nextReviewAt: string;
   lastReviewedAt: string | null;
   word: WordEntryDto;
+  groups: WordGroupDetailDto[];
+}
+
+export interface CreateWordGroupDto {
+  name: string;
+  color?: string;
+}
+
+export interface UpdateWordGroupDto {
+  name?: string;
+  color?: string;
+}
+
+export interface AssignWordsToGroupDto {
+  progressIds: string[];
+}
+
+export interface RemoveWordsFromGroupDto {
+  progressIds: string[];
 }
 
 export interface GrammarQuestionDto {
