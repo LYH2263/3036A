@@ -56,6 +56,39 @@ export interface GrammarAttemptDto {
   createdAt: string;
 }
 
+export interface GrammarMistakeDto {
+  id: string;
+  questionId: string;
+  lessonId: string;
+  lessonTitle: string;
+  level: GrammarLevel;
+  questionType: 'single_choice' | 'fill_blank';
+  prompt: string;
+  options: string[];
+  userAnswer: string;
+  correctAnswer: string;
+  explanation: string;
+  errorCount: number;
+  lastAttemptAt: string;
+  createdAt: string;
+}
+
+export interface GrammarMistakeLessonDto {
+  lessonId: string;
+  lessonTitle: string;
+  level: GrammarLevel;
+  count: number;
+}
+
+export interface GrammarMistakeRetryResultDto {
+  deduplicated: boolean;
+  id: string;
+  correctCount: number;
+  totalQuestions: number;
+  removedCount: number;
+  createdAt: string;
+}
+
 export interface AchievementDto {
   code: string;
   title: string;
@@ -73,7 +106,10 @@ export interface StatsOverviewDto {
   achievements: AchievementDto[];
 }
 
-export type OfflineQueueEvent = WordReviewEvent | GrammarAttemptEvent;
+export type OfflineQueueEvent =
+  | WordReviewEvent
+  | GrammarAttemptEvent
+  | GrammarMistakeRetryEvent;
 
 export interface WordReviewEvent {
   type: 'WORD_REVIEW';
@@ -91,6 +127,15 @@ export interface GrammarAttemptEvent {
   payload: {
     lessonId: string;
     answers: Array<{ questionId: string; answer: string }>;
+  };
+  createdAt: string;
+}
+
+export interface GrammarMistakeRetryEvent {
+  type: 'GRAMMAR_MISTAKE_RETRY';
+  clientEventId: string;
+  payload: {
+    answers: Array<{ mistakeId: string; answer: string }>;
   };
   createdAt: string;
 }

@@ -134,3 +134,48 @@ model GrammarAttempt {
   @@index([userId, createdAt])
   @@map("grammar_attempts")
 }
+
+model GrammarMistake {
+  id             String       @id @default(uuid())
+  userId         String       @map("user_id")
+  questionId     String       @map("question_id")
+  lessonId       String       @map("lesson_id")
+  lessonTitle    String       @map("lesson_title")
+  level          GrammarLevel
+  questionType   QuestionType @map("question_type")
+  prompt         String
+  options        Json
+  userAnswer     String       @map("user_answer")
+  correctAnswer  String       @map("correct_answer")
+  explanation    String
+  errorCount     Int          @default(1) @map("error_count")
+  lastAttemptAt  DateTime     @default(now()) @map("last_attempt_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question       GrammarQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  lesson         GrammarLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionId])
+  @@index([userId, level])
+  @@index([userId, lessonId])
+  @@index([userId, lastAttemptAt])
+  @@map("grammar_mistakes")
+}
+
+model GrammarMistakeRetryEvent {
+  id             String       @id @default(uuid())
+  userId         String       @map("user_id")
+  clientEventId  String       @map("client_event_id")
+  answers        Json
+  correctCount   Int          @map("correct_count")
+  totalQuestions Int          @map("total_questions")
+  removedCount   Int          @map("removed_count")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientEventId])
+  @@index([userId, createdAt])
+  @@map("grammar_mistake_retry_events")
+}

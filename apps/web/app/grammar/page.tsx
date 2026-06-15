@@ -1,7 +1,8 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, CloudOff, FileText, Filter, ListChecks } from 'lucide-react';
+import { BookX, CheckCircle2, CloudOff, FileText, Filter, ListChecks } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import { AppShell } from '../../components/app-shell';
@@ -164,6 +165,25 @@ export default function GrammarPage() {
             void queryClient.invalidateQueries({ queryKey: ['stats-overview'] });
           }}
         />
+
+        <section className="card bg-white/95">
+          <Link
+            href="/grammar/mistakes"
+            className="flex items-center justify-between rounded-[var(--radius-control)] border border-brand-200 bg-brand-50 p-4 transition-all hover:border-brand-400 hover:bg-brand-100/80"
+            data-testid="mistakes-entry"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-100">
+                <BookX className="h-5 w-5 text-brand-600" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="font-medium text-brand-800">语法错题本</p>
+                <p className="text-xs text-brand-600">查看答错的题目，支持重练巩固</p>
+              </div>
+            </div>
+            <span className="text-sm text-brand-600">进入 →</span>
+          </Link>
+        </section>
 
         <section className="card space-y-4 bg-white/95" data-testid="grammar-lessons-section">
           <h2 className="section-title">

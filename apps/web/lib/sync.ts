@@ -29,6 +29,16 @@ export async function syncOfflineQueue(): Promise<{ synced: number; failed: numb
         });
       }
 
+      if (row.event.type === 'GRAMMAR_MISTAKE_RETRY') {
+        await apiRequest('/grammar/mistakes/retry', {
+          method: 'POST',
+          body: JSON.stringify({
+            answers: row.event.payload.answers,
+            clientEventId: row.event.clientEventId
+          })
+        });
+      }
+
       await removeOfflineEvent(row.id);
       synced += 1;
     } catch (_error) {
