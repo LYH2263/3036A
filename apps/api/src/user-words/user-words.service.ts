@@ -259,27 +259,33 @@ export class UserWordsService {
     const MAX_EASE = 3.0;
 
     let easeDelta: number;
+    let minInterval: number;
     let intervalMultiplier: number;
 
     switch (rating) {
       case ReviewRating.completely_forgot:
         easeDelta = -0.3;
+        minInterval = 1;
         intervalMultiplier = 0;
         break;
       case ReviewRating.fuzzy:
         easeDelta = -0.15;
-        intervalMultiplier = 0.5;
+        minInterval = 2;
+        intervalMultiplier = 1.2;
         break;
       case ReviewRating.recognized:
         easeDelta = 0.15;
+        minInterval = 4;
         intervalMultiplier = 1;
         break;
       case ReviewRating.mastered:
         easeDelta = 0.3;
-        intervalMultiplier = 1.2;
+        minInterval = 7;
+        intervalMultiplier = 1.5;
         break;
       default:
         easeDelta = 0;
+        minInterval = 1;
         intervalMultiplier = 1;
     }
 
@@ -290,7 +296,7 @@ export class UserWordsService {
       nextInterval = 1;
     } else {
       const effectiveMultiplier = nextEase * intervalMultiplier;
-      nextInterval = Math.max(1, Math.round(intervalDays * effectiveMultiplier));
+      nextInterval = Math.max(minInterval, Math.round(intervalDays * effectiveMultiplier));
     }
 
     return { easeFactor: nextEase, intervalDays: nextInterval };

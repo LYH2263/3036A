@@ -132,27 +132,33 @@ function calculateNextPreview(
   rating: ReviewRating
 ): { intervalDays: number; easeFactor: number; nextReviewAt: string } {
   let easeDelta: number;
+  let minInterval: number;
   let intervalMultiplier: number;
 
   switch (rating) {
     case 'completely_forgot':
       easeDelta = -0.3;
+      minInterval = 1;
       intervalMultiplier = 0;
       break;
     case 'fuzzy':
       easeDelta = -0.15;
-      intervalMultiplier = 0.5;
+      minInterval = 2;
+      intervalMultiplier = 1.2;
       break;
     case 'recognized':
       easeDelta = 0.15;
+      minInterval = 4;
       intervalMultiplier = 1;
       break;
     case 'mastered':
       easeDelta = 0.3;
-      intervalMultiplier = 1.2;
+      minInterval = 7;
+      intervalMultiplier = 1.5;
       break;
     default:
       easeDelta = 0;
+      minInterval = 1;
       intervalMultiplier = 1;
   }
 
@@ -163,7 +169,7 @@ function calculateNextPreview(
     nextInterval = 1;
   } else {
     const effectiveMultiplier = nextEase * intervalMultiplier;
-    nextInterval = Math.max(1, Math.round(intervalDays * effectiveMultiplier));
+    nextInterval = Math.max(minInterval, Math.round(intervalDays * effectiveMultiplier));
   }
 
   const nextDate = new Date();
