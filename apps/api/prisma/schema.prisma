@@ -43,6 +43,7 @@ model User {
   searchHistories    SearchHistory[]
   grammarMistakes    GrammarMistake[]
   grammarMistakeRetryEvents GrammarMistakeRetryEvent[]
+  grammarSkips       GrammarSkip[]
 
   @@map("users")
 }
@@ -127,6 +128,7 @@ model GrammarLesson {
   questions   GrammarQuestion[]
   attempts    GrammarAttempt[]
   mistakes    GrammarMistake[]
+  skips       GrammarSkip[]
 
   @@index([level])
   @@map("grammar_lessons")

@@ -1747,7 +1747,7 @@ export default function GrammarPage() {
                     </div>
                     <p className="mt-2 text-xs text-slate-500 tabular-nums">
                       掌握度 {percent}%
-                      {!isUnlocked && mastery.total > 0 && lv !== 'basic' ? ' · 待解锁' : ''}
+                      {!isUnlocked && mastery.total > 0 ? ' · 待解锁' : ''}
                     </p>
                   </div>
                 );

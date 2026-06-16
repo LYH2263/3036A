@@ -184,7 +184,7 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
       setSaveStatus(nextStatus);
       isSavingRef.current = false;
 
-      if (nextStatus !== 'error' && nextStatus !== 'idle') {
+      if (nextStatus !== 'idle') {
         setTimeout(() => {
           setSaveStatus((prev) => (prev === 'error' ? prev : 'idle'));
         }, 2000);

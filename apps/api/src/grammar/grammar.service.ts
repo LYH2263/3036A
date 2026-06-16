@@ -14,6 +14,7 @@ import { SkipLessonDto } from './skip-lesson.dto';
 import { SubmitAttemptDto, TimeLimitModeDto } from './submit-attempt.dto';
 
 const MASTERY_THRESHOLD = 80;
+const LEVEL_UNLOCK_MASTERY_PERCENT = 60;
 const DEFAULT_RECOMMENDATION_COUNT = 10;
 
 interface LessonPerformance {
