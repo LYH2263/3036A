@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 
 import { CurrentUser, CurrentUserPayload } from '../common/current-user.decorator';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
@@ -8,6 +8,7 @@ import { GetMistakesQueryDto } from './get-mistakes-query.dto';
 import { GetRecommendationDto } from './get-recommendation.dto';
 import { GrammarService } from './grammar.service';
 import { RetryMistakesDto } from './retry-mistakes.dto';
+import { SkipLessonDto } from './skip-lesson.dto';
 import { SubmitAttemptDto } from './submit-attempt.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -63,5 +64,22 @@ export class GrammarController {
   @Post('mistakes/retry')
   retryMistakes(@CurrentUser() user: CurrentUserPayload, @Body() dto: RetryMistakesDto) {
     return this.grammarService.retryMistakes(user.sub, dto);
+  }
+
+  @Post('lessons/:id/skip')
+  skipLesson(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') lessonId: string,
+    @Body() dto: SkipLessonDto
+  ) {
+    return this.grammarService.skipLesson(user.sub, lessonId, dto);
+  }
+
+  @Delete('lessons/:id/skip')
+  unskipLesson(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') lessonId: string
+  ) {
+    return this.grammarService.unskipLesson(user.sub, lessonId);
   }
 }

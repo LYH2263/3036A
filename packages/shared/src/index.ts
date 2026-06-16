@@ -243,6 +243,21 @@ export interface GrammarRecommendationResponse {
   allMastered: boolean;
 }
 
+export interface GrammarSkipDto {
+  id: string;
+  lessonId: string;
+  lessonTitle: string;
+  level: GrammarLevel;
+  reason: string | null;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface SkipLessonDto {
+  reason?: string;
+  days?: number;
+}
+
 export interface AchievementDto {
   code: string;
   title: string;

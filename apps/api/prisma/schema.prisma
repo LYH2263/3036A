@@ -223,6 +223,22 @@ model GrammarMistakeRetryEvent {
   @@map("grammar_mistake_retry_events")
 }
 
+model GrammarSkip {
+  id        String         @id @default(uuid())
+  userId    String         @map("user_id")
+  lessonId  String         @map("lesson_id")
+  reason    String?
+  expiresAt DateTime       @map("expires_at")
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson    GrammarLesson  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([userId, expiresAt])
+  @@map("grammar_skips")
+}
+
 model WordNote {
   id         String           @id @default(uuid())
   userId     String           @map("user_id")

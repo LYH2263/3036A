@@ -10,6 +10,7 @@ import { GetLessonsQueryDto } from './get-lessons-query.dto';
 import { GetMistakesQueryDto } from './get-mistakes-query.dto';
 import { GetRecommendationDto } from './get-recommendation.dto';
 import { RetryMistakesDto } from './retry-mistakes.dto';
+import { SkipLessonDto } from './skip-lesson.dto';
 import { SubmitAttemptDto, TimeLimitModeDto } from './submit-attempt.dto';
 
 const MASTERY_THRESHOLD = 80;
@@ -153,7 +154,7 @@ export class GrammarService {
     }
 
     const questionMap = new Map(lesson.questions.map((item) => [item.id, item]));
-    const totalQuestions = lesson.questions.length;
+    const totalQuestions = dto.answers.length;
 
     let correctCount = 0;
     let timeoutCount = 0;
@@ -737,7 +738,7 @@ export class GrammarService {
   async getRecommendation(userId: string, query: GetRecommendationDto): Promise<RecommendationResult> {
     const questionCount = query.questionCount ?? DEFAULT_RECOMMENDATION_COUNT;
 
-    const [allLessons, allAttempts, allMistakes, allQuestions] = await Promise.all([
+    const [allLessons, allAttempts, allMistakes, allQuestions, activeSkips] = await Promise.all([
       this.prisma.grammarLesson.findMany({
         orderBy: [{ level: 'asc' }, { createdAt: 'asc' }]
       }),
@@ -750,20 +751,28 @@ export class GrammarService {
       }),
       this.prisma.grammarQuestion.findMany({
         include: { lesson: true }
+      }),
+      this.prisma.grammarSkip.findMany({
+        where: { userId, expiresAt: { gt: new Date() } }
       })
     ]);
+
+    const skippedLessonIds = new Set(activeSkips.map((s) => s.lessonId));
+    const availableLessons = allLessons.filter((l) => !skippedLessonIds.has(l.id));
+    const availableQuestions = allQuestions.filter((q) => !skippedLessonIds.has(q.lessonId));
 
     const isColdStart = allAttempts.length === 0 && allMistakes.length === 0;
 
     if (isColdStart) {
-      return this.generateColdStartRecommendation(allLessons, allQuestions, questionCount);
+      return this.generateColdStartRecommendation(availableLessons, availableQuestions, questionCount);
     }
 
-    const lessonPerformances = this.computeLessonPerformances(allLessons, allAttempts, allMistakes);
+    const lessonPerformances = this.computeLessonPerformances(availableLessons, allAttempts, allMistakes);
 
-    const allMastered = lessonPerformances.every((lp) => lp.mastered);
+    const allMastered =
+      lessonPerformances.length > 0 && lessonPerformances.every((lp) => lp.mastered);
     if (allMastered) {
-      return this.generateAllMasteredRecommendation(allLessons, allQuestions, questionCount);
+      return this.generateAllMasteredRecommendation(availableLessons, availableQuestions, questionCount);
     }
 
     const levelMastery = this.computeLevelMasteryFromPerformances(lessonPerformances);
@@ -773,7 +782,7 @@ export class GrammarService {
 
     return this.generateRecommendationFromRanked(
       rankedLessons,
-      allQuestions,
+      availableQuestions,
       questionCount,
       levelMastery
     );
@@ -1270,5 +1279,83 @@ export class GrammarService {
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
+  }
+
+  async skipLesson(userId: string, lessonId: string, dto: SkipLessonDto) {
+    const lesson = await this.prisma.grammarLesson.findUnique({
+      where: { id: lessonId }
+    });
+
+    if (!lesson) {
+      throw new NotFoundException({
+        message: '语法知识点不存在',
+        errorCode: 'LESSON_NOT_FOUND'
+      });
+    }
+
+    const days = dto.days ?? 7;
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + days);
+
+    const skip = await this.prisma.grammarSkip.upsert({
+      where: {
+        userId_lessonId: {
+          userId,
+          lessonId
+        }
+      },
+      update: {
+        reason: dto.reason,
+        expiresAt
+      },
+      create: {
+        userId,
+        lessonId,
+        reason: dto.reason,
+        expiresAt
+      },
+      include: {
+        lesson: true
+      }
+    });
+
+    return {
+      id: skip.id,
+      lessonId: skip.lessonId,
+      lessonTitle: skip.lesson.title,
+      level: skip.lesson.level,
+      reason: skip.reason,
+      expiresAt: skip.expiresAt.toISOString(),
+      createdAt: skip.createdAt.toISOString()
+    };
+  }
+
+  async unskipLesson(userId: string, lessonId: string) {
+    const existing = await this.prisma.grammarSkip.findUnique({
+      where: {
+        userId_lessonId: {
+          userId,
+          lessonId
+        }
+      }
+    });
+
+    if (!existing) {
+      throw new NotFoundException({
+        message: '该知识点未被跳过',
+        errorCode: 'SKIP_NOT_FOUND'
+      });
+    }
+
+    await this.prisma.grammarSkip.delete({
+      where: {
+        userId_lessonId: {
+          userId,
+          lessonId
+        }
+      }
+    });
+
+    return { success: true };
   }
 }

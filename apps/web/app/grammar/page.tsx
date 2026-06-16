@@ -18,6 +18,7 @@ import {
   Play,
   RefreshCw,
   Settings,
+  SkipForward,
   Sparkles,
   Target,
   Timer,
@@ -443,6 +444,18 @@ export default function GrammarPage() {
 
     setPageMode('quiz');
   }, [practiceMode, recommendationResult, lessonDetailQuery.data, timeLimitMode, perQuestionSec, perQuizSec]);
+
+  const skipLessonMutation = useMutation({
+    mutationFn: async (lessonId: string) => {
+      return apiRequest(`/grammar/lessons/${lessonId}/skip`, {
+        method: 'POST',
+        body: JSON.stringify({ days: 7 })
+      });
+    },
+    onSuccess: () => {
+      void recommendationQuery.refetch();
+    }
+  });
 
   const submitMutation = useMutation({
     mutationFn: async (opts?: { forceFinish?: boolean; timeTakenMsOverride?: number }) => {
@@ -1132,6 +1145,21 @@ export default function GrammarPage() {
                           </div>
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm(`确定要暂时跳过「${reason.lessonTitle}」吗？7天内将不再推荐此知识点。`)) {
+                            void skipLessonMutation.mutateAsync(reason.lessonId);
+                          }
+                        }}
+                        disabled={skipLessonMutation.isPending}
+                        className="btn-secondary text-xs flex items-center gap-1 shrink-0"
+                        data-testid={`skip-lesson-${reason.lessonId}`}
+                        title="暂时跳过此知识点（7天）"
+                      >
+                        <SkipForward className="h-3 w-3" aria-hidden="true" />
+                        跳过
+                      </button>
                     </div>
                   </div>
                 );
