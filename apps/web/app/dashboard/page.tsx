@@ -7,6 +7,7 @@ import {
   BookOpen,
   CheckCircle2,
   Clock3,
+  EyeOff,
   FileText,
   Flame,
   ListChecks,
@@ -15,7 +16,7 @@ import {
   XCircle
 } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AppShell } from '../../components/app-shell';
 import { OfflineQueuePanel } from '../../components/offline-queue-panel';
@@ -125,9 +126,46 @@ function useMidnightRefresh(invalidateFn: () => void) {
   }, [invalidateFn]);
 }
 
+const DISMISSED_REMINDERS_KEY = 'lexigram-dismissed-reminders';
+
+function getTodayKey(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function loadDismissedTypes(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(DISMISSED_REMINDERS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as { date: string; types: string[] };
+    if (parsed.date !== getTodayKey()) {
+      localStorage.removeItem(DISMISSED_REMINDERS_KEY);
+      return new Set();
+    }
+    return new Set(parsed.types);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissedTypes(types: Set<string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(
+      DISMISSED_REMINDERS_KEY,
+      JSON.stringify({ date: getTodayKey(), types: Array.from(types) })
+    );
+  } catch {
+    // ignore
+  }
+}
+
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { ready } = useRequireAuth();
+
+  const [dismissedTypes, setDismissedTypes] = useState<Set<string>>(() => loadDismissedTypes());
 
   const statsQuery = useQuery({
     queryKey: ['stats-overview'],
@@ -145,6 +183,26 @@ export default function DashboardPage() {
 
   const stats = statsQuery.data;
   const reminders = remindersQuery.data;
+
+  const visibleItems = useMemo(() => {
+    if (!reminders) return [];
+    return reminders.items.filter((item) => !dismissedTypes.has(item.type));
+  }, [reminders, dismissedTypes]);
+
+  const allCleared = useMemo(() => {
+    if (!reminders) return false;
+    if (reminders.items.length === 0) return true;
+    return visibleItems.length === 0;
+  }, [reminders, visibleItems]);
+
+  const handleDismiss = useCallback((type: string) => {
+    setDismissedTypes((prev) => {
+      const next = new Set(prev);
+      next.add(type);
+      saveDismissedTypes(next);
+      return next;
+    });
+  }, []);
 
   const invalidateAll = useMemo(() => {
     return () => {
@@ -186,14 +244,14 @@ export default function DashboardPage() {
                 <h2 className="section-title">
                   <Clock3 className="h-4 w-4 text-brand-600" aria-hidden="true" />
                   今日提醒
-                  {!reminders.allCleared ? (
+                  {!allCleared ? (
                     <span className="ml-2 inline-flex items-center rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">
-                      {reminders.items.length} 项
+                      {visibleItems.length} 项
                     </span>
                   ) : null}
                 </h2>
 
-                {reminders.allCleared ? (
+                {allCleared ? (
                   <div
                     className="flex flex-col items-center justify-center py-8 text-center"
                     data-testid="reminders-cleared"
@@ -211,7 +269,7 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {reminders.items.map((item) => {
+                    {visibleItems.map((item) => {
                       const Icon = getReminderIcon(item.type);
                       const styles = getReminderStyles(item.urgency);
                       return (
@@ -241,7 +299,17 @@ export default function DashboardPage() {
                               {item.description}
                             </p>
                           </div>
-                          <div className="shrink-0">
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                              onClick={() => handleDismiss(item.type)}
+                              data-testid={`reminder-dismiss-${item.type}`}
+                              aria-label={`忽略今日：${item.title}`}
+                            >
+                              <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+                              忽略今日
+                            </button>
                             <Link
                               href={item.href}
                               className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${styles.btn}`}

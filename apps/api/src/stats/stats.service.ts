@@ -79,14 +79,14 @@ export class StatsService {
       })
     ]);
 
-    const reviewRemaining = Math.max(
-      0,
-      DEFAULT_DAILY_GOALS.reviewCount - todayCompletedReviews
-    );
-    const grammarRemaining = Math.max(
-      0,
-      DEFAULT_DAILY_GOALS.grammarAttempts - todayGrammarAttempts
-    );
+    const totalAvailableReviews = overdueReviewCount + todayDueReviewCount;
+    const effectiveReviewGoal = Math.min(DEFAULT_DAILY_GOALS.reviewCount, totalAvailableReviews);
+    const reviewRemaining = totalAvailableReviews > 0
+      ? Math.max(0, effectiveReviewGoal - todayCompletedReviews)
+      : 0;
+    const grammarRemaining = mistakeCount > 0
+      ? Math.max(0, DEFAULT_DAILY_GOALS.grammarAttempts - todayGrammarAttempts)
+      : 0;
     const hasUnmetGoal = reviewRemaining > 0 || grammarRemaining > 0;
     const unmetGoalCount = (reviewRemaining > 0 ? 1 : 0) + (grammarRemaining > 0 ? 1 : 0);
 
