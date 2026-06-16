@@ -720,7 +720,7 @@ export default function GrammarPage() {
       }
 
       if (currentQuestionIndex + 1 >= questions.length) {
-        submitMutation.mutate();
+        submitMutation.mutate({});
         return;
       }
 
@@ -750,7 +750,7 @@ export default function GrammarPage() {
     }
 
     if (currentQuestionIndex + 1 >= lessonDetailQuery.data.questions.length) {
-      submitMutation.mutate();
+      submitMutation.mutate({});
       return;
     }
 
@@ -1259,9 +1259,9 @@ export default function GrammarPage() {
                   <FileText className="h-4 w-4 text-brand-600" aria-hidden="true" />
                   {displayLesson.title}
                 </h2>
-                {isRecommendQuiz && 'lessonTitle' in displayQuestion ? (
+                {isRecommendQuiz && 'lessonTitle' in displayQuestion && 'level' in displayQuestion ? (
                   <p className="mt-0.5 text-xs text-purple-600">
-                    知识点：{displayQuestion.lessonTitle} · {formatLessonLevel(displayQuestion.level)}
+                    知识点：{String(displayQuestion.lessonTitle)} · {formatLessonLevel(displayQuestion.level as 'basic' | 'intermediate' | 'advanced')}
                   </p>
                 ) : null}
                 <p className="mt-0.5 text-xs text-slate-500">
@@ -1947,7 +1947,7 @@ export default function GrammarPage() {
               <button
                 type="button"
                 className="btn-primary"
-                onClick={() => submitMutation.mutate()}
+                onClick={() => submitMutation.mutate({})}
                 data-testid="submit-attempt"
               >
                 {submitMutation.isPending ? '提交中...' : '提交练习'}

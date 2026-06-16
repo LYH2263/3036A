@@ -15,9 +15,9 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-import { apiRequest, ApiError } from '../../lib/api';
-import { renderLightMarkdown } from '../../lib/markdown';
-import { enqueueOfflineEvent } from '../../lib/offline-queue';
+import { apiRequest, ApiError } from '../lib/api';
+import { renderLightMarkdown } from '../lib/markdown';
+import { enqueueOfflineEvent } from '../lib/offline-queue';
 
 const MAX_NOTE_LENGTH = 5000;
 
@@ -114,7 +114,7 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
         const localNote: WordNoteDto = {
           id: `local-${progressId}`,
           progressId,
-          content: data.content,
+          content: data.content ?? '',
           version: noteQuery.data ? noteQuery.data.version + 1 : 1,
           createdAt: noteQuery.data?.createdAt ?? new Date().toISOString(),
           updatedAt: new Date().toISOString()
@@ -131,7 +131,7 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
 
       setSaveStatus(nextStatus);
 
-      if (nextStatus !== 'error' && nextStatus !== 'idle') {
+      if (nextStatus !== 'idle') {
         setTimeout(() => {
           setSaveStatus((prev) => (prev === 'error' ? prev : 'idle'));
         }, 2000);

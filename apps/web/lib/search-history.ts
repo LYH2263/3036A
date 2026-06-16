@@ -291,9 +291,12 @@ export async function clearSearchHistory(userId: string | null): Promise<SearchH
   return [];
 }
 
-export function debounce<T extends (...args: unknown[]) => unknown>(fn: T, delayMs: number): (...args: Parameters<T>) => void {
+export function debounce<Args extends unknown[]>(
+  fn: (...args: Args) => unknown,
+  delayMs: number
+): (...args: Args) => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  return function debounced(...args: Parameters<T>) {
+  return function debounced(...args: Args) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       fn(...args);

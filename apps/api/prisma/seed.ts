@@ -649,9 +649,235 @@ const lessons = [
   }
 ] as const;
 
+function daysAgo(n: number, hour = 9): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  d.setHours(hour, 0, 0, 0);
+  return d;
+}
+
+function daysFromNow(n: number, hour = 9): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  d.setHours(hour, 0, 0, 0);
+  return d;
+}
+
+function newId(): string {
+  return globalThis.crypto.randomUUID();
+}
+
+async function seedTestUserData(userId: string) {
+  // 清理该测试账号已有的学习数据，保证可重复执行
+  await prisma.userWordReviewEvent.deleteMany({ where: { userId } });
+  await prisma.wordNote.deleteMany({ where: { userId } });
+  await prisma.grammarMistake.deleteMany({ where: { userId } });
+  await prisma.grammarMistakeRetryEvent.deleteMany({ where: { userId } });
+  await prisma.grammarAttempt.deleteMany({ where: { userId } });
+  await prisma.searchHistory.deleteMany({ where: { userId } });
+  await prisma.wordGroup.deleteMany({ where: { userId } });
+  await prisma.userWordProgress.deleteMany({ where: { userId } });
+
+  // 选取核心词库中的前 60 个单词作为该用户的学习记录
+  const selectedWords = coreWords.slice(0, 60).map(([word]) => word);
+  const entries = await prisma.wordEntry.findMany({
+    where: { word: { in: selectedWords } }
+  });
+
+  const progresses: { id: string; index: number; word: string }[] = [];
+
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry = entries[i];
+    const isKnown = i % 3 === 0;
+
+    let nextReviewAt: Date;
+    if (i % 4 === 0) {
+      nextReviewAt = daysAgo((i % 3) + 1); // 已过期，待复习
+    } else if (i % 4 === 1) {
+      nextReviewAt = daysFromNow(0, 21); // 今天到期
+    } else {
+      nextReviewAt = daysFromNow((i % 7) + 1); // 未来几天
+    }
+
+    const progress = await prisma.userWordProgress.create({
+      data: {
+        userId,
+        wordEntryId: entry.id,
+        status: isKnown ? 'known' : 'learning',
+        easeFactor: Number((2.5 + ((i % 5) - 2) * 0.1).toFixed(2)),
+        intervalDays: isKnown ? (i % 10) + 5 : (i % 3) + 1,
+        nextReviewAt,
+        lastReviewedAt: daysAgo((i % 10) + 1),
+        createdAt: daysAgo(25 - (i % 20))
+      }
+    });
+
+    progresses.push({ id: progress.id, index: i, word: entry.word });
+  }
+
+  // 复习历史事件（用于统计连续打卡、复习曲线），覆盖最近 14 天
+  const ratings = ['completely_forgot', 'fuzzy', 'recognized', 'mastered'] as const;
+  let eventCounter = 0;
+  for (let day = 14; day >= 0; day -= 1) {
+    const reviewsToday = (day % 4) + 2; // 每天 2~5 条
+    for (let r = 0; r < reviewsToday; r += 1) {
+      const progress = progresses[(eventCounter * 7 + day) % progresses.length];
+      if (!progress) continue;
+      const known = (eventCounter + day) % 4 !== 0;
+      await prisma.userWordReviewEvent.create({
+        data: {
+          userId,
+          progressId: progress.id,
+          clientEventId: newId(),
+          known,
+          rating: ratings[(eventCounter + r) % ratings.length],
+          easeFactorAfter: Number((2.4 + ((eventCounter % 4) * 0.1)).toFixed(2)),
+          intervalDaysAfter: (eventCounter % 8) + 1,
+          reviewedAt: daysAgo(day, 9 + (r % 8)),
+          createdAt: daysAgo(day, 9 + (r % 8))
+        }
+      });
+      eventCounter += 1;
+    }
+  }
+
+  // 单词分组
+  const groupDefs = [
+    { name: '考研核心词', color: '#6366f1' },
+    { name: '高频动词', color: '#10b981' },
+    { name: '易混淆词', color: '#f59e0b' }
+  ];
+
+  for (let g = 0; g < groupDefs.length; g += 1) {
+    const def = groupDefs[g];
+    const members = progresses
+      .filter((_, idx) => idx % groupDefs.length === g)
+      .slice(0, 12);
+
+    await prisma.wordGroup.create({
+      data: {
+        userId,
+        name: def.name,
+        color: def.color,
+        createdAt: daysAgo(20 - g),
+        progresses: {
+          connect: members.map((m) => ({ id: m.id }))
+        }
+      }
+    });
+  }
+
+  // 单词笔记
+  const noteTexts = [
+    '**助记**：a- 表示否定，bandon 联想 band（乐队解散）。',
+    '词根 habil = 能够，ability 即"能力"。',
+    '近义词：reach / attain，注意搭配 *achieve a goal*。',
+    '- 名词：方法\n- 动词：接近\n常考短语 *an approach to*。',
+    '反义词：simple。complex 强调结构复杂。'
+  ];
+  for (let n = 0; n < noteTexts.length && n < progresses.length; n += 1) {
+    await prisma.wordNote.create({
+      data: {
+        userId,
+        progressId: progresses[n].id,
+        content: noteTexts[n],
+        version: 1,
+        createdAt: daysAgo(10 - n),
+        updatedAt: daysAgo(3 - (n % 3))
+      }
+    });
+  }
+
+  // 语法答题记录（覆盖多节课程、最近若干天）
+  const lessonRecords = await prisma.grammarLesson.findMany({
+    include: { questions: true },
+    orderBy: { createdAt: 'asc' }
+  });
+
+  let attemptDay = 13;
+  for (let l = 0; l < lessonRecords.length && l < 10; l += 1) {
+    const lesson = lessonRecords[l];
+    if (lesson.questions.length === 0) continue;
+
+    const total = lesson.questions.length;
+    const correctCount = Math.max(1, total - (l % 3));
+    const isTimed = l % 2 === 0;
+
+    const answers = lesson.questions.map((q, qi) => {
+      const correct = qi < correctCount;
+      return {
+        questionId: q.id,
+        answer: correct ? q.answer : '',
+        correct,
+        timedOut: false,
+        timeTakenMs: 4000 + qi * 1200
+      };
+    });
+
+    await prisma.grammarAttempt.create({
+      data: {
+        userId,
+        lessonId: lesson.id,
+        clientEventId: newId(),
+        score: Math.round((correctCount / total) * 100),
+        totalQuestions: total,
+        correctCount,
+        answers,
+        isTimedMode: isTimed,
+        timeLimitMode: isTimed ? 'per_quiz' : null,
+        timeLimitSec: isTimed ? 300 : null,
+        timeTakenMs: isTimed ? 120000 + l * 5000 : null,
+        timeoutCount: 0,
+        createdAt: daysAgo(Math.max(0, attemptDay))
+      }
+    });
+    attemptDay -= 1;
+
+    // 把答错的题记入错题本
+    const wrongQuestions = lesson.questions.slice(correctCount);
+    for (const q of wrongQuestions) {
+      await prisma.grammarMistake.create({
+        data: {
+          userId,
+          questionId: q.id,
+          lessonId: lesson.id,
+          lessonTitle: lesson.title,
+          level: lesson.level,
+          questionType: q.type,
+          prompt: q.prompt,
+          options: q.options as object,
+          userAnswer: '',
+          correctAnswer: q.answer,
+          explanation: q.explanation,
+          errorCount: (l % 3) + 1,
+          lastAttemptAt: daysAgo(Math.max(0, attemptDay + 1)),
+          createdAt: daysAgo(Math.max(0, attemptDay + 1))
+        }
+      });
+    }
+  }
+
+  // 搜索历史
+  const queries = ['achieve', 'benefit', 'context', 'strategy', 'review', 'structure', 'efficient'];
+  for (let s = 0; s < queries.length; s += 1) {
+    await prisma.searchHistory.create({
+      data: {
+        userId,
+        query: queries[s],
+        searchedAt: daysAgo(s, 14 + (s % 6))
+      }
+    });
+  }
+
+  const progressCount = progresses.length;
+  console.log(
+    `User data seeded: ${progressCount} word progresses, ${eventCounter} review events, ${groupDefs.length} groups, grammar attempts & mistakes, ${queries.length} searches`
+  );
+}
+
 async function main() {
   const passwordHash = await bcrypt.hash(TEST_ACCOUNT_PASSWORD, 10);
-  await prisma.user.upsert({
+  const testUser = await prisma.user.upsert({
     where: { email: TEST_ACCOUNT_EMAIL },
     create: {
       email: TEST_ACCOUNT_EMAIL,
@@ -701,6 +927,8 @@ async function main() {
       });
     }
   }
+
+  await seedTestUserData(testUser.id);
 
   console.log(
     `Seed complete: test account ${TEST_ACCOUNT_EMAIL} / ${TEST_ACCOUNT_PASSWORD}, ${words.length} words, ${lessons.length} lessons`

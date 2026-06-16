@@ -160,21 +160,20 @@ export function OfflineQueuePanel({ onSynced }: { onSynced?: () => void }) {
 
       setQueue((prev) => {
         const resultMap = new Map(result.results.map((r) => [r.id, r]));
-        return prev
-          .map((item) => {
-            const resultItem = resultMap.get(item.id);
-            if (resultItem?.success) {
-              return null;
-            }
-            return {
-              ...item,
-              syncing: false,
-              lastSuccess: resultItem?.success,
-              lastError: resultItem?.error,
-              retryCount: resultItem?.success ? 0 : item.retryCount + 1
-            };
-          })
-          .filter((item): item is QueueItem => item !== null);
+        return prev.reduce<QueueItem[]>((acc, item) => {
+          const resultItem = resultMap.get(item.id);
+          if (resultItem?.success) {
+            return acc;
+          }
+          acc.push({
+            ...item,
+            syncing: false,
+            lastSuccess: resultItem?.success,
+            lastError: resultItem?.error,
+            retryCount: resultItem?.success ? 0 : item.retryCount + 1
+          });
+          return acc;
+        }, []);
       });
 
       onSynced?.();

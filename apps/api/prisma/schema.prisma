@@ -41,6 +41,8 @@ model User {
   wordGroups         WordGroup[]
   wordNotes          WordNote[]
   searchHistories    SearchHistory[]
+  grammarMistakes    GrammarMistake[]
+  grammarMistakeRetryEvents GrammarMistakeRetryEvent[]
 
   @@map("users")
 }
@@ -124,6 +126,7 @@ model GrammarLesson {
   createdAt   DateTime         @default(now()) @map("created_at")
   questions   GrammarQuestion[]
   attempts    GrammarAttempt[]
+  mistakes    GrammarMistake[]
 
   @@index([level])
   @@map("grammar_lessons")
@@ -140,6 +143,7 @@ model GrammarQuestion {
   createdAt   DateTime     @default(now()) @map("created_at")
 
   lesson      GrammarLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  mistakes    GrammarMistake[]
 
   @@index([lessonId])
   @@map("grammar_questions")
@@ -222,7 +226,7 @@ model GrammarMistakeRetryEvent {
 model WordNote {
   id         String           @id @default(uuid())
   userId     String           @map("user_id")
-  progressId String           @map("progress_id")
+  progressId String           @unique @map("progress_id")
   content    String
   version    Int              @default(1)
   createdAt  DateTime         @default(now()) @map("created_at")
