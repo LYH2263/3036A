@@ -160,7 +160,7 @@ export class StatsService {
     todayStart.setHours(0, 0, 0, 0);
     const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-    const [todayReviewCount, todayNewWords, vocabularyTotal, totalReviews, grammarStats] =
+    const [todayReviewCount, todayNewWords, vocabularyTotal, totalReviews, grammarStats, grammarMistakeCount] =
       await Promise.all([
         this.prisma.userWordReviewEvent.count({
           where: {
@@ -201,6 +201,9 @@ export class StatsService {
             correctCount: true,
             totalQuestions: true
           }
+        }),
+        this.prisma.grammarMistake.count({
+          where: { userId }
         })
       ]);
 
@@ -242,6 +245,7 @@ export class StatsService {
       totalReviews,
       grammarAttempts,
       grammarCorrectRate,
+      grammarMistakeCount,
       streakDays,
       achievements
     };

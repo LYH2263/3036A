@@ -1,7 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { CalendarDays, FileText, Flame, Percent, RefreshCw, BookOpen, Trophy } from 'lucide-react';
+import { BookX, CalendarDays, FileText, Flame, Percent, RefreshCw, BookOpen, Trophy } from 'lucide-react';
+import Link from 'next/link';
 
 import { AppShell } from '../../components/app-shell';
 import { apiRequest } from '../../lib/api';
@@ -15,6 +16,7 @@ interface StatsOverview {
   totalReviews: number;
   grammarAttempts: number;
   grammarCorrectRate: number;
+  grammarMistakeCount: number;
   streakDays: number;
   achievements: Array<{ code: string; title: string; description: string }>;
 }
@@ -70,6 +72,19 @@ export default function ProgressPage() {
                 </p>
                 <p className="stat-value">{stats.grammarAttempts}</p>
               </div>
+              <Link
+                href="/grammar/mistakes"
+                className="card card-hover bg-white/95 transition-all hover:border-amber-300 hover:bg-amber-50/50"
+                data-testid="progress-card-grammar-mistakes"
+              >
+                <p className="stat-label">
+                  <BookX className="h-4 w-4 text-amber-500" aria-hidden="true" />
+                  语法错题待重练
+                </p>
+                <p className={`stat-value ${stats.grammarMistakeCount > 0 ? 'text-amber-600' : ''}`}>
+                  {stats.grammarMistakeCount} 道
+                </p>
+              </Link>
               <div className="card card-hover bg-white/95" data-testid="progress-card-streak">
                 <p className="stat-label">
                   <Flame className="h-4 w-4 text-brand-500" aria-hidden="true" />

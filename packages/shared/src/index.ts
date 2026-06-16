@@ -251,6 +251,7 @@ export interface StatsOverviewDto {
   totalReviews: number;
   grammarAttempts: number;
   grammarCorrectRate: number;
+  grammarMistakeCount: number;
   streakDays: number;
   achievements: AchievementDto[];
 }

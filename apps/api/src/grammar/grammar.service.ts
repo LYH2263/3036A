@@ -162,6 +162,7 @@ export class GrammarService {
       userAnswer: string;
       correctAnswer: string;
     }> = [];
+    const correctQuestionIds: string[] = [];
 
     for (const answer of dto.answers) {
       const question = questionMap.get(answer.questionId);
@@ -180,6 +181,7 @@ export class GrammarService {
 
       if (isCorrect) {
         correctCount += 1;
+        correctQuestionIds.push(question.id);
       } else {
         wrongAnswers.push({
           questionId: question.id,
@@ -259,6 +261,17 @@ export class GrammarService {
           timeoutCount
         }
       });
+
+      if (correctQuestionIds.length > 0) {
+        await tx.grammarMistake.deleteMany({
+          where: {
+            userId,
+            questionId: {
+              in: correctQuestionIds
+            }
+          }
+        });
+      }
 
       for (const wrong of wrongAnswers) {
         const question = questionMap.get(wrong.questionId);
