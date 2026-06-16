@@ -81,6 +81,8 @@ export interface SubmitAttemptResult {
   timeLimitSec?: number;
   timeTakenMs?: number;
   timeoutCount?: number;
+  historicalAvgTimeMs?: number | null;
+  timedAttemptCount?: number;
   details?: QuestionResultDetail[];
 }
 
@@ -170,10 +172,11 @@ export class GrammarService {
         continue;
       }
 
-      const isTimedOut = answer.timedOut === true;
+      const hasAnswer = answer.answer.trim() !== '';
+      const isTimedOut = !hasAnswer && answer.timedOut === true;
       const expected = question.answer.trim().toLowerCase();
       const actual = answer.answer.trim().toLowerCase();
-      const isCorrect = !isTimedOut && expected === actual;
+      const isCorrect = hasAnswer && expected === actual;
 
       if (isTimedOut) {
         timeoutCount += 1;
@@ -227,6 +230,8 @@ export class GrammarService {
     });
 
     if (duplicated) {
+      const historicalAvg = await this.computeHistoricalAvgTime(userId, lessonId, duplicated.id);
+
       return {
         deduplicated: true,
         id: duplicated.id,
@@ -240,6 +245,8 @@ export class GrammarService {
         timeLimitSec: duplicated.timeLimitSec ?? undefined,
         timeTakenMs: duplicated.timeTakenMs ?? undefined,
         timeoutCount: duplicated.timeoutCount,
+        historicalAvgTimeMs: historicalAvg.avgTimeMs,
+        timedAttemptCount: historicalAvg.count,
         details
       };
     }
@@ -319,6 +326,8 @@ export class GrammarService {
       }
     });
 
+    const historicalAvg = await this.computeHistoricalAvgTime(userId, lessonId, created!.id);
+
     return {
       deduplicated: false,
       id: created!.id,
@@ -332,6 +341,8 @@ export class GrammarService {
       timeLimitSec: created!.timeLimitSec ?? undefined,
       timeTakenMs: created!.timeTakenMs ?? undefined,
       timeoutCount: created!.timeoutCount,
+      historicalAvgTimeMs: historicalAvg.avgTimeMs,
+      timedAttemptCount: historicalAvg.count,
       details
     };
   }
@@ -585,6 +596,34 @@ export class GrammarService {
     });
 
     return { lessons, levelMastery };
+  }
+
+  private async computeHistoricalAvgTime(
+    userId: string,
+    lessonId: string,
+    excludeAttemptId: string
+  ): Promise<{ avgTimeMs: number | null; count: number }> {
+    const historicalAttempts = await this.prisma.grammarAttempt.findMany({
+      where: {
+        userId,
+        lessonId,
+        isTimedMode: true,
+        timeTakenMs: { not: null },
+        id: { not: excludeAttemptId }
+      },
+      select: {
+        timeTakenMs: true
+      }
+    });
+
+    if (historicalAttempts.length === 0) {
+      return { avgTimeMs: null, count: 0 };
+    }
+
+    const sum = historicalAttempts.reduce((acc, a) => acc + (a.timeTakenMs ?? 0), 0);
+    const avgTimeMs = Math.round(sum / historicalAttempts.length);
+
+    return { avgTimeMs, count: historicalAttempts.length };
   }
 
   private computeLevelMastery(

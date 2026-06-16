@@ -281,12 +281,13 @@ export default function GrammarPage() {
           const taken = Date.now() - questionStartTs;
           setAnswers((prev) => {
             const existing = prev[currentQ.id];
+            const hasAnswered = existing && existing.answer.trim() !== '';
             return {
               ...prev,
               [currentQ.id]: {
                 questionId: currentQ.id,
                 answer: existing?.answer ?? '',
-                timedOut,
+                timedOut: !hasAnswered && timedOut,
                 timeTakenMs: existing?.timeTakenMs ?? taken
               }
             };
@@ -315,12 +316,13 @@ export default function GrammarPage() {
         const taken = Date.now() - questionStartTs;
         setAnswers((prev) => {
           const existing = prev[currentQ.id];
+          const hasAnswered = existing && existing.answer.trim() !== '';
           return {
             ...prev,
             [currentQ.id]: {
               questionId: currentQ.id,
               answer: existing?.answer ?? '',
-              timedOut,
+              timedOut: !hasAnswered && timedOut,
               timeTakenMs: existing?.timeTakenMs ?? taken
             }
           };
@@ -588,7 +590,15 @@ export default function GrammarPage() {
 
       const finalAnswers: AttemptAnswer[] = lessonDetailQuery.data.questions.map((q, idx) => {
         const existing = answers[q.id];
-        if (existing) return existing;
+        if (existing) {
+          const hasAnswered = existing.answer.trim() !== '';
+          return {
+            questionId: existing.questionId,
+            answer: existing.answer,
+            timedOut: !hasAnswered && (existing.timedOut ?? false),
+            timeTakenMs: existing.timeTakenMs
+          };
+        }
         const isCurrentQuestion = idx === currentQuestionIndex;
         const isUnanswered = practiceMode === 'timed' && opts?.forceFinish;
         return {
@@ -1429,6 +1439,53 @@ export default function GrammarPage() {
                     <span className="ml-1 text-slate-500">
                       （{formatSeconds(result.timeLimitSec ?? 0)}）
                     </span>
+                  </div>
+                ) : null}
+
+                {result.isTimedMode ? (
+                  <div
+                    className="rounded-[var(--radius-control)] border border-blue-200 bg-blue-50/60 p-3 text-sm"
+                    data-testid="time-comparison"
+                  >
+                    {result.historicalAvgTimeMs != null && result.timedAttemptCount != null && result.timedAttemptCount > 0 ? (
+                      <>
+                        <Clock className="mr-1 inline-block h-4 w-4 text-blue-500" aria-hidden="true" />
+                        <span className="text-slate-700">历史平均用时</span>
+                        <span className="mx-1 font-medium text-blue-700 tabular-nums">
+                          {formatDuration(result.historicalAvgTimeMs)}
+                        </span>
+                        <span className="text-slate-500">（{result.timedAttemptCount} 次限时测验）</span>
+                        <span className="mx-1.5 text-slate-400">·</span>
+                        {(() => {
+                          const diff = (result.historicalAvgTimeMs ?? 0) - (result.timeTakenMs ?? 0);
+                          const diffSec = Math.abs(Math.round(diff / 1000));
+                          if (diff > 0) {
+                            return (
+                              <span className="font-medium text-emerald-700">
+                                比平均快 {diffSec} 秒
+                              </span>
+                            );
+                          } else if (diff < 0) {
+                            return (
+                              <span className="font-medium text-amber-700">
+                                比平均慢 {diffSec} 秒
+                              </span>
+                            );
+                          } else {
+                            return (
+                              <span className="font-medium text-slate-600">
+                                与平均用时相同
+                              </span>
+                            );
+                          }
+                        })()}
+                      </>
+                    ) : (
+                      <>
+                        <Clock className="mr-1 inline-block h-4 w-4 text-blue-500" aria-hidden="true" />
+                        <span className="text-slate-600">该知识点首次限时测验，暂无历史平均用时对比</span>
+                      </>
+                    )}
                   </div>
                 ) : null}
               </section>

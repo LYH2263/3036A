@@ -146,6 +146,8 @@ export interface GrammarAttemptDto {
   timeLimitSec?: number;
   timeTakenMs?: number;
   timeoutCount?: number;
+  historicalAvgTimeMs?: number | null;
+  timedAttemptCount?: number;
   details?: QuestionResultDetail[];
 }
 
