@@ -13,7 +13,6 @@ import { RetryMistakesDto } from './retry-mistakes.dto';
 import { SubmitAttemptDto, TimeLimitModeDto } from './submit-attempt.dto';
 
 const MASTERY_THRESHOLD = 80;
-const LEVEL_UNLOCK_MASTERY_PERCENT = 60;
 const DEFAULT_RECOMMENDATION_COUNT = 10;
 
 interface LessonPerformance {
@@ -692,8 +691,8 @@ export class GrammarService {
   private computeLocked(
     lessonLevel: GrammarLevel,
     levelMastery: {
-      basic: { masteryPercent: number; total: number };
-      intermediate: { masteryPercent: number; total: number };
+      basic: { mastered: number; total: number };
+      intermediate: { mastered: number; total: number };
     }
   ): { locked: boolean; lockReason?: string } {
     if (lessonLevel === GrammarLevel.basic) {
@@ -704,10 +703,10 @@ export class GrammarService {
       if (levelMastery.basic.total === 0) {
         return { locked: false };
       }
-      if (levelMastery.basic.masteryPercent < LEVEL_UNLOCK_MASTERY_PERCENT) {
+      if (levelMastery.basic.mastered < 1) {
         return {
           locked: true,
-          lockReason: `需先掌握基础知识点（当前掌握度 ${levelMastery.basic.masteryPercent}%，需达到 ${LEVEL_UNLOCK_MASTERY_PERCENT}%）`
+          lockReason: '需先掌握至少 1 个基础知识点'
         };
       }
       return { locked: false };
@@ -715,18 +714,18 @@ export class GrammarService {
 
     if (lessonLevel === GrammarLevel.advanced) {
       if (levelMastery.intermediate.total === 0) {
-        if (levelMastery.basic.total > 0 && levelMastery.basic.masteryPercent < LEVEL_UNLOCK_MASTERY_PERCENT) {
+        if (levelMastery.basic.total > 0 && levelMastery.basic.mastered < 1) {
           return {
             locked: true,
-            lockReason: `需先掌握基础知识点（当前掌握度 ${levelMastery.basic.masteryPercent}%，需达到 ${LEVEL_UNLOCK_MASTERY_PERCENT}%）`
+            lockReason: '需先掌握至少 1 个基础知识点'
           };
         }
         return { locked: false };
       }
-      if (levelMastery.intermediate.masteryPercent < LEVEL_UNLOCK_MASTERY_PERCENT) {
+      if (levelMastery.intermediate.mastered < 1) {
         return {
           locked: true,
-          lockReason: `需先掌握进阶知识点（当前掌握度 ${levelMastery.intermediate.masteryPercent}%，需达到 ${LEVEL_UNLOCK_MASTERY_PERCENT}%）`
+          lockReason: '需先掌握至少 1 个进阶知识点'
         };
       }
       return { locked: false };

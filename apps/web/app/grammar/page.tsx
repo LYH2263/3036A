@@ -1679,11 +1679,11 @@ export default function GrammarPage() {
                   lv === 'basic' ||
                   (lv === 'intermediate' &&
                     (mastery.total === 0 ||
-                      levelMastery.basic.masteryPercent >= 60)) ||
+                      levelMastery.basic.mastered >= 1)) ||
                   (lv === 'advanced' &&
                     (levelMastery.intermediate.total === 0
-                      ? levelMastery.basic.total === 0 || levelMastery.basic.masteryPercent >= 60
-                      : levelMastery.intermediate.masteryPercent >= 60));
+                      ? levelMastery.basic.total === 0 || levelMastery.basic.mastered >= 1
+                      : levelMastery.intermediate.mastered >= 1));
                 return (
                   <div
                     key={lv}
@@ -1710,7 +1710,7 @@ export default function GrammarPage() {
                     <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-200">
                       <div
                         className={`h-full rounded-full transition-all duration-700 ${
-                          percent >= 60
+                          isUnlocked
                             ? 'bg-gradient-to-r from-emerald-400 to-green-500'
                             : 'bg-gradient-to-r from-slate-400 to-slate-500'
                         }`}
@@ -1719,7 +1719,7 @@ export default function GrammarPage() {
                     </div>
                     <p className="mt-2 text-xs text-slate-500 tabular-nums">
                       掌握度 {percent}%
-                      {percent < 60 && mastery.total > 0 && lv !== 'basic' ? ' · 待解锁' : ''}
+                      {!isUnlocked && mastery.total > 0 && lv !== 'basic' ? ' · 待解锁' : ''}
                     </p>
                   </div>
                 );
