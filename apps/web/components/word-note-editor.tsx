@@ -1,6 +1,10 @@
 'use client';
 
-import type { UpsertWordNoteResultDto, WordNoteDto } from '@lexigram/shared';
+import type {
+  UpsertWordNoteResultDto,
+  UserWordProgressDto,
+  WordNoteDto
+} from '@lexigram/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
@@ -28,6 +32,38 @@ interface WordNoteEditorProps {
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'offline';
 
+function updateListNoteFlag(
+  queryClient: ReturnType<typeof useQueryClient>,
+  progressId: string,
+  hasNote: boolean
+) {
+  const now = new Date().toISOString();
+
+  queryClient.setQueriesData<UserWordProgressDto[]>(
+    { queryKey: ['today-reviews'] },
+    (data) => {
+      if (!data) return data;
+      return data.map((item) =>
+        item.id === progressId
+          ? { ...item, hasNote, noteUpdatedAt: hasNote ? now : null }
+          : item
+      );
+    }
+  );
+
+  queryClient.setQueriesData<UserWordProgressDto[]>(
+    { queryKey: ['user-words'] },
+    (data) => {
+      if (!data) return data;
+      return data.map((item) =>
+        item.id === progressId
+          ? { ...item, hasNote, noteUpdatedAt: hasNote ? now : null }
+          : item
+      );
+    }
+  );
+}
+
 export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEditorProps) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
@@ -37,6 +73,8 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
   const [errorMessage, setErrorMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastKnownVersionRef = useRef<number | null>(null);
+  const isSavingRef = useRef(false);
 
   const noteQuery = useQuery({
     queryKey: ['word-note', progressId],
@@ -103,6 +141,7 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
       }
     },
     onMutate: () => {
+      isSavingRef.current = true;
       setSaveStatus('saving');
       setErrorMessage('');
     },
@@ -111,33 +150,48 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
 
       if ('queued' in data && data.queued) {
         nextStatus = 'offline';
+        const nextVersion = (lastKnownVersionRef.current ?? 0) + 1;
         const localNote: WordNoteDto = {
           id: `local-${progressId}`,
           progressId,
           content: data.content ?? '',
-          version: noteQuery.data ? noteQuery.data.version + 1 : 1,
+          version: nextVersion,
           createdAt: noteQuery.data?.createdAt ?? new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
+        lastKnownVersionRef.current = nextVersion;
         queryClient.setQueryData(['word-note', progressId], localNote);
+
+        updateListNoteFlag(queryClient, progressId, true);
       } else if ('result' in data && data.result) {
-        nextStatus = data.result.deleted ? 'idle' : 'saved';
-        queryClient.setQueryData(['word-note', progressId], data.result.note);
         if (data.result.deleted) {
+          nextStatus = 'idle';
+          lastKnownVersionRef.current = null;
+          queryClient.setQueryData(['word-note', progressId], null);
           setEditing(false);
           setDraftContent('');
+
+          updateListNoteFlag(queryClient, progressId, false);
+        } else if (data.result.note) {
+          nextStatus = 'saved';
+          lastKnownVersionRef.current = data.result.note.version;
+          queryClient.setQueryData(['word-note', progressId], data.result.note);
+
+          updateListNoteFlag(queryClient, progressId, true);
         }
       }
 
       setSaveStatus(nextStatus);
+      isSavingRef.current = false;
 
-      if (nextStatus !== 'idle') {
+      if (nextStatus !== 'error' && nextStatus !== 'idle') {
         setTimeout(() => {
           setSaveStatus((prev) => (prev === 'error' ? prev : 'idle'));
         }, 2000);
       }
     },
     onError: (error) => {
+      isSavingRef.current = false;
       setSaveStatus('error');
       if (error instanceof ApiError) {
         setErrorMessage(error.message);
@@ -193,6 +247,8 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
     },
     onSuccess: (data) => {
       queryClient.setQueryData(['word-note', progressId], null);
+      lastKnownVersionRef.current = null;
+      updateListNoteFlag(queryClient, progressId, false);
       setEditing(false);
       setDraftContent('');
       if (data.queued) {
@@ -215,8 +271,11 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
   useEffect(() => {
     if (noteQuery.data) {
       setDraftContent(noteQuery.data.content);
+      lastKnownVersionRef.current = noteQuery.data.version;
+    } else if (noteQuery.isFetched) {
+      lastKnownVersionRef.current = null;
     }
-  }, [noteQuery.data]);
+  }, [noteQuery.data, noteQuery.isFetched]);
 
   useEffect(() => {
     return () => {
@@ -232,13 +291,17 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
     }
 
     saveTimeoutRef.current = setTimeout(() => {
-      if (content.trim() === '' && !noteQuery.data) {
+      const trimmed = content.trim();
+      if (trimmed === '') {
+        return;
+      }
+      if (isSavingRef.current) {
         return;
       }
 
       upsertMutation.mutate({
-        content,
-        expectedVersion: noteQuery.data?.version
+        content: trimmed,
+        expectedVersion: lastKnownVersionRef.current ?? undefined
       });
     }, 800);
   };
@@ -249,7 +312,9 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
     }
     setDraftContent(value);
     setSaveStatus('idle');
-    debouncedSave(value);
+    if (value.trim() !== '') {
+      debouncedSave(value);
+    }
   };
 
   const startEditing = () => {
@@ -272,18 +337,22 @@ export function WordNoteEditor({ progressId, testIdPrefix = 'note' }: WordNoteEd
       clearTimeout(saveTimeoutRef.current);
     }
 
-    if (draftContent.trim() === '') {
-      if (noteQuery.data) {
-        deleteMutation.mutate();
-      } else {
+    const trimmed = draftContent.trim();
+
+    if (trimmed === '') {
+      if (!noteQuery.data) {
         setEditing(false);
       }
       return;
     }
 
+    if (isSavingRef.current) {
+      return;
+    }
+
     upsertMutation.mutate({
-      content: draftContent,
-      expectedVersion: noteQuery.data?.version
+      content: trimmed,
+      expectedVersion: lastKnownVersionRef.current ?? undefined
     });
   };
 

@@ -18,6 +18,7 @@ import {
   ListChecks,
   Search,
   Square,
+  StickyNote,
   Tag,
   Volume2,
   X
@@ -1003,6 +1004,15 @@ export default function VocabularyPage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="text-base font-semibold">{item.word.word}</p>
+                              {item.hasNote ? (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+                                  data-testid={`review-note-badge-${item.id}`}
+                                >
+                                  <StickyNote className="h-3 w-3" aria-hidden="true" />
+                                  有笔记
+                                </span>
+                              ) : null}
                               {item.groups.length > 0 ? (
                                 <div className="flex flex-wrap gap-1">
                                   {item.groups.map((g) => (
@@ -1161,6 +1171,15 @@ export default function VocabularyPage() {
                               <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadge}`}>
                                 {item.status === 'known' ? '已掌握' : '学习中'}
                               </span>
+                              {item.hasNote ? (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+                                  data-testid={`library-note-badge-${item.id}`}
+                                >
+                                  <StickyNote className="h-3 w-3" aria-hidden="true" />
+                                  有笔记
+                                </span>
+                              ) : null}
                               {item.groups.length > 0 ? (
                                 <div className="flex flex-wrap gap-1">
                                   {item.groups.map((g) => (

@@ -15,6 +15,7 @@ type ProgressWithWordAndGroups = Prisma.UserWordProgressGetPayload<{
   include: {
     wordEntry: true;
     groups: true;
+    note: true;
   };
 }>;
 
@@ -41,7 +42,8 @@ export class UserWordsService {
       },
       include: {
         wordEntry: true,
-        groups: true
+        groups: true,
+        note: true
       }
     });
 
@@ -60,7 +62,8 @@ export class UserWordsService {
       },
       include: {
         wordEntry: true,
-        groups: true
+        groups: true,
+        note: true
       }
     });
 
@@ -83,7 +86,8 @@ export class UserWordsService {
       where,
       include: {
         wordEntry: true,
-        groups: true
+        groups: true,
+        note: true
       },
       orderBy: {
         nextReviewAt: 'asc'
@@ -104,7 +108,8 @@ export class UserWordsService {
       where,
       include: {
         wordEntry: true,
-        groups: true
+        groups: true,
+        note: true
       },
       orderBy: {
         createdAt: 'desc'
@@ -149,7 +154,8 @@ export class UserWordsService {
       where: { id: progressId },
       include: {
         wordEntry: true,
-        groups: true
+        groups: true,
+        note: true
       }
     });
 
@@ -175,7 +181,7 @@ export class UserWordsService {
     if (existedEvent) {
       const latest = await this.prisma.userWordProgress.findUnique({
         where: { id: progressId },
-        include: { wordEntry: true, groups: true }
+        include: { wordEntry: true, groups: true, note: true }
       });
 
       if (!latest) {
@@ -216,7 +222,8 @@ export class UserWordsService {
         },
         include: {
           wordEntry: true,
-          groups: true
+          groups: true,
+          note: true
         }
       });
 
@@ -298,6 +305,8 @@ export class UserWordsService {
       intervalDays: item.intervalDays,
       nextReviewAt: formatStandardDateTime(item.nextReviewAt),
       lastReviewedAt: item.lastReviewedAt ? formatStandardDateTime(item.lastReviewedAt) : null,
+      hasNote: !!item.note,
+      noteUpdatedAt: item.note ? formatStandardDateTime(item.note.updatedAt) : null,
       word: {
         id: item.wordEntry.id,
         word: item.wordEntry.word,

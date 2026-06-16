@@ -75,8 +75,11 @@ export interface UserWordProgressDto {
   intervalDays: number;
   nextReviewAt: string;
   lastReviewedAt: string | null;
+  hasNote: boolean;
+  noteUpdatedAt: string | null;
   word: WordEntryDto;
   groups: WordGroupDetailDto[];
+  rating?: ReviewRating;
 }
 
 export interface CreateWordGroupDto {
