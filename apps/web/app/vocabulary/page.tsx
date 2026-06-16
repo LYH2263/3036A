@@ -299,14 +299,20 @@ export default function VocabularyPage() {
     enabled: ready
   });
 
+  const allLibraryQuery = useQuery({
+    queryKey: ['user-words', 'all'],
+    queryFn: () => apiRequest<UserWordProgressDto[]>('/user-words'),
+    enabled: ready
+  });
+
   const libraryWordsSet = useMemo(() => {
-    const all = libraryQuery.data ?? [];
+    const all = allLibraryQuery.data ?? [];
     const set = new Set<string>();
     for (const item of all) {
       set.add(item.word.word.toLowerCase());
     }
     return set;
-  }, [libraryQuery.data]);
+  }, [allLibraryQuery.data]);
 
   const groupsQuery = useQuery({
     queryKey: ['word-groups'],
@@ -458,10 +464,15 @@ export default function VocabularyPage() {
     setActiveHistoryIndex(-1);
   }, [loadSearchHistory]);
 
+  const totalWordCount = useMemo(
+    () => (allLibraryQuery.data ?? []).length,
+    [allLibraryQuery.data]
+  );
+
   const ungroupedCount = useMemo(() => {
-    const all = libraryQuery.data ?? [];
+    const all = allLibraryQuery.data ?? [];
     return all.filter((w) => w.groups.length === 0).length;
-  }, [libraryQuery.data]);
+  }, [allLibraryQuery.data]);
 
   const addWordMutation = useMutation({
     mutationFn: (wordEntryId: string) =>
@@ -663,7 +674,7 @@ export default function VocabularyPage() {
             <GroupSidebar
               filter={filter}
               onFilterChange={setFilter}
-              totalCount={libraryItems.length}
+              totalCount={totalWordCount}
               ungroupedCount={ungroupedCount}
               onNotice={setNotice}
             />
@@ -809,15 +820,25 @@ export default function VocabularyPage() {
                     <p className="mt-1 text-sm text-slate-600">{word.phonetic || '暂无音标'}</p>
                     <p className="mt-2 text-sm text-slate-800">{word.definition}</p>
                     <p className="mt-1 text-sm text-slate-500">例句：{word.exampleSentence}</p>
-                    <button
-                      type="button"
-                      className="btn-primary mt-3"
-                      onClick={() => addWordMutation.mutate(word.id)}
-                      disabled={addWordMutation.isPending}
-                      data-testid={`word-add-${word.id}`}
-                    >
-                      加入生词本
-                    </button>
+                    {libraryWordsSet.has(word.word.toLowerCase()) ? (
+                      <div
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-[var(--radius-control)] bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700"
+                        data-testid={`word-in-lib-${word.id}`}
+                      >
+                        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                        已加入生词本
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-primary mt-3"
+                        onClick={() => addWordMutation.mutate(word.id)}
+                        disabled={addWordMutation.isPending}
+                        data-testid={`word-add-${word.id}`}
+                      >
+                        加入生词本
+                      </button>
+                    )}
                   </article>
                 ))}
               </div>
