@@ -12,6 +12,7 @@ interface LocalHistoryItem {
   id: string;
   query: string;
   searchedAt: string;
+  searchCount: number;
   inLibrary: boolean;
 }
 
@@ -154,9 +155,12 @@ export async function addSearchHistory(
   const now = new Date().toISOString();
   const id = generateId();
 
+  const existingItem = current.find((item) => normalizeQuery(item.query) === normalized);
+  const nextCount = existingItem ? existingItem.searchCount + 1 : 1;
+
   const filtered = current.filter((item) => normalizeQuery(item.query) !== normalized);
   const next: LocalHistoryItem[] = [
-    { id, query: normalized, searchedAt: now, inLibrary: libraryWords.has(normalized) },
+    { id, query: normalized, searchedAt: now, searchCount: nextCount, inLibrary: libraryWords.has(normalized) },
     ...filtered
   ].slice(0, MAX_HISTORY_ITEMS);
 

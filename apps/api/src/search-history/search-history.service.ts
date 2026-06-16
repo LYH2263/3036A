@@ -18,6 +18,17 @@ export class SearchHistoryService {
       return null;
     }
 
+    const existing = await this.prisma.searchHistory.findUnique({
+      where: {
+        userId_query: {
+          userId,
+          query: normalized
+        }
+      }
+    });
+
+    const nextCount = existing ? existing.searchCount + 1 : 1;
+
     await this.prisma.searchHistory.upsert({
       where: {
         userId_query: {
@@ -28,10 +39,12 @@ export class SearchHistoryService {
       create: {
         userId,
         query: normalized,
-        searchedAt: new Date()
+        searchedAt: new Date(),
+        searchCount: nextCount
       },
       update: {
-        searchedAt: new Date()
+        searchedAt: new Date(),
+        searchCount: nextCount
       }
     });
 
@@ -119,13 +132,14 @@ export class SearchHistoryService {
   }
 
   private mapHistoryItem(
-    item: { id: string; query: string; searchedAt: Date },
+    item: { id: string; query: string; searchedAt: Date; searchCount: number },
     inLibrarySet: Set<string>
   ) {
     return {
       id: item.id,
       query: item.query,
       searchedAt: formatStandardDateTime(item.searchedAt),
+      searchCount: item.searchCount,
       inLibrary: inLibrarySet.has(item.query)
     };
   }

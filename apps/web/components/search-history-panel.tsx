@@ -93,8 +93,13 @@ export function SearchHistoryPanel({
                         </span>
                       ) : null}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-slate-400">
-                      {formatSearchedAt(item.searchedAt)}
+                    <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-400">
+                      <span>{formatSearchedAt(item.searchedAt)}</span>
+                      {item.searchCount > 1 ? (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 px-1.5 py-0.5">
+                          搜索 {item.searchCount} 次
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                   <button

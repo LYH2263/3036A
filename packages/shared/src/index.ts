@@ -329,6 +329,7 @@ export interface SearchHistoryDto {
   id: string;
   query: string;
   searchedAt: string;
+  searchCount: number;
   inLibrary: boolean;
 }
 

@@ -37,7 +37,6 @@ import { enqueueOfflineEvent } from '../../lib/offline-queue';
 import {
   addSearchHistory,
   clearSearchHistory,
-  debounce,
   deleteSearchHistoryItem,
   fetchSearchHistory
 } from '../../lib/search-history';
@@ -82,7 +81,6 @@ const ACCENT_OPTIONS = [
 ] as const;
 
 const AUTO_VOICE_VALUE = '__auto__';
-const DEBOUNCE_ADD_HISTORY_MS = 800;
 
 type TabType = 'review' | 'library';
 
@@ -231,6 +229,7 @@ export default function VocabularyPage() {
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchSectionRef = useRef<HTMLDivElement | null>(null);
+  const lastRecordedQueryRef = useRef<string | null>(null);
 
   const highlightTarget = useHashFocus();
 
@@ -349,26 +348,27 @@ export default function VocabularyPage() {
     }
   }, [libraryWordsSet, searchHistory.length]);
 
-  const debouncedAddHistory = useMemo(
-    () =>
-      debounce(async (searchQuery: string) => {
-        const normalized = searchQuery.trim();
-        if (!normalized) return;
+  useEffect(() => {
+    const results = wordsQuery.data;
+    const trimmed = query.trim();
+
+    if (
+      results &&
+      results.length > 0 &&
+      trimmed &&
+      trimmed !== lastRecordedQueryRef.current
+    ) {
+      lastRecordedQueryRef.current = trimmed;
+      void (async () => {
         try {
-          const items = await addSearchHistory(user?.id ?? null, normalized, libraryWordsSet);
+          const items = await addSearchHistory(user?.id ?? null, trimmed, libraryWordsSet);
           setSearchHistory(items);
         } catch {
           // ignore
         }
-      }, DEBOUNCE_ADD_HISTORY_MS),
-    [user?.id, libraryWordsSet]
-  );
-
-  useEffect(() => {
-    if (query.trim().length > 0) {
-      debouncedAddHistory(query);
+      })();
     }
-  }, [query, debouncedAddHistory]);
+  }, [wordsQuery.data, query, user?.id, libraryWordsSet]);
 
   const handleHistorySelect = useCallback(
     (selectedQuery: string) => {

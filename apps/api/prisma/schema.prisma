@@ -245,6 +245,7 @@ model SearchHistory {
   userId      String   @map("user_id")
   query       String
   searchedAt  DateTime @default(now()) @map("searched_at")
+  searchCount Int      @default(1) @map("search_count")
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
